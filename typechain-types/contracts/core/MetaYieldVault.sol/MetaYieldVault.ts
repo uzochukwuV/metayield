@@ -23,6 +23,60 @@ import type {
   TypedContractMethod,
 } from "../../../common";
 
+export declare namespace MetaYieldVault {
+  export type VaultConfigStruct = {
+    earnAdapter: AddressLike;
+    lpAdapter: AddressLike;
+    farmAdapter: AddressLike;
+    earnBps: BigNumberish;
+    lpBps: BigNumberish;
+    bufferBps: BigNumberish;
+    rebalanceDriftBps: BigNumberish;
+    minHarvestCake: BigNumberish;
+    asterPerpRouter: AddressLike;
+    hedgeBps: BigNumberish;
+    dynamicAlloc: boolean;
+    minEarnBps: BigNumberish;
+    maxEarnBps: BigNumberish;
+    regimeVolatilityThreshold: BigNumberish;
+    depegThresholdBps: BigNumberish;
+  };
+
+  export type VaultConfigStructOutput = [
+    earnAdapter: string,
+    lpAdapter: string,
+    farmAdapter: string,
+    earnBps: bigint,
+    lpBps: bigint,
+    bufferBps: bigint,
+    rebalanceDriftBps: bigint,
+    minHarvestCake: bigint,
+    asterPerpRouter: string,
+    hedgeBps: bigint,
+    dynamicAlloc: boolean,
+    minEarnBps: bigint,
+    maxEarnBps: bigint,
+    regimeVolatilityThreshold: bigint,
+    depegThresholdBps: bigint
+  ] & {
+    earnAdapter: string;
+    lpAdapter: string;
+    farmAdapter: string;
+    earnBps: bigint;
+    lpBps: bigint;
+    bufferBps: bigint;
+    rebalanceDriftBps: bigint;
+    minHarvestCake: bigint;
+    asterPerpRouter: string;
+    hedgeBps: bigint;
+    dynamicAlloc: boolean;
+    minEarnBps: bigint;
+    maxEarnBps: bigint;
+    regimeVolatilityThreshold: bigint;
+    depegThresholdBps: bigint;
+  };
+}
+
 export interface MetaYieldVaultInterface extends Interface {
   getFunction(
     nameOrSignature:
@@ -30,11 +84,13 @@ export interface MetaYieldVaultInterface extends Interface {
       | "ASUSDF_MINTER"
       | "CAKE"
       | "CAKE_WBNB_POOL"
+      | "HARVEST_BOUNTY_BPS"
       | "HARVEST_GAS_ESTIMATE"
       | "HARVEST_SAFETY_FACTOR"
       | "MASTERCHEF_V2"
       | "MAX_BPS"
       | "PANCAKE_ROUTER"
+      | "SWAP_SLIPPAGE_BPS"
       | "USDF"
       | "USDF_MINTER"
       | "USDT"
@@ -61,6 +117,8 @@ export interface MetaYieldVaultInterface extends Interface {
       | "harvest"
       | "hedgeBps"
       | "hedgeCollateralUsdt"
+      | "initialEarnBps"
+      | "initialLpBps"
       | "lastBnbPrice"
       | "lastPriceTimestamp"
       | "lpAdapter"
@@ -76,7 +134,6 @@ export interface MetaYieldVaultInterface extends Interface {
       | "mint"
       | "name"
       | "openHedgeKey"
-      | "owner"
       | "pendingCake"
       | "pendingWithdrawRequest"
       | "pendingWithdrawShares"
@@ -88,23 +145,15 @@ export interface MetaYieldVaultInterface extends Interface {
       | "rebalanceDriftBps"
       | "redeem"
       | "regimeVolatilityThreshold"
-      | "renounceOwnership"
-      | "setDepegThreshold"
-      | "setDynamicAlloc"
-      | "setHedgeConfig"
-      | "setMinHarvestCake"
-      | "setRebalanceDrift"
-      | "setRegimeThreshold"
-      | "setStrategyParams"
       | "sharePrice"
       | "shouldHarvest"
       | "symbol"
       | "totalAssets"
+      | "totalBountiesPaid"
       | "totalCakeHarvested"
       | "totalSupply"
       | "transfer"
       | "transferFrom"
-      | "transferOwnership"
       | "withdraw"
   ): FunctionFragment;
 
@@ -117,13 +166,10 @@ export interface MetaYieldVaultInterface extends Interface {
       | "EarnSkippedDepeg"
       | "Harvested"
       | "HedgeClosed"
-      | "HedgeConfigUpdated"
       | "HedgeOpened"
-      | "OwnershipTransferred"
       | "Rebalanced"
       | "RegimeSwitched"
       | "StrategyAllocated"
-      | "StrategyParamsUpdated"
       | "Transfer"
       | "Withdraw"
       | "WithdrawClaimed"
@@ -141,6 +187,10 @@ export interface MetaYieldVaultInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "HARVEST_BOUNTY_BPS",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "HARVEST_GAS_ESTIMATE",
     values?: undefined
   ): string;
@@ -155,6 +205,10 @@ export interface MetaYieldVaultInterface extends Interface {
   encodeFunctionData(functionFragment: "MAX_BPS", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "PANCAKE_ROUTER",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "SWAP_SLIPPAGE_BPS",
     values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "USDF", values?: undefined): string;
@@ -235,6 +289,14 @@ export interface MetaYieldVaultInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "initialEarnBps",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "initialLpBps",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "lastBnbPrice",
     values?: undefined
   ): string;
@@ -282,7 +344,6 @@ export interface MetaYieldVaultInterface extends Interface {
     functionFragment: "openHedgeKey",
     values?: undefined
   ): string;
-  encodeFunctionData(functionFragment: "owner", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "pendingCake",
     values?: undefined
@@ -325,38 +386,6 @@ export interface MetaYieldVaultInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
-    functionFragment: "renounceOwnership",
-    values?: undefined
-  ): string;
-  encodeFunctionData(
-    functionFragment: "setDepegThreshold",
-    values: [BigNumberish]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "setDynamicAlloc",
-    values: [boolean, BigNumberish, BigNumberish]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "setHedgeConfig",
-    values: [AddressLike, BigNumberish]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "setMinHarvestCake",
-    values: [BigNumberish]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "setRebalanceDrift",
-    values: [BigNumberish]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "setRegimeThreshold",
-    values: [BigNumberish]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "setStrategyParams",
-    values: [BigNumberish, BigNumberish, BigNumberish]
-  ): string;
-  encodeFunctionData(
     functionFragment: "sharePrice",
     values?: undefined
   ): string;
@@ -367,6 +396,10 @@ export interface MetaYieldVaultInterface extends Interface {
   encodeFunctionData(functionFragment: "symbol", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "totalAssets",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "totalBountiesPaid",
     values?: undefined
   ): string;
   encodeFunctionData(
@@ -386,10 +419,6 @@ export interface MetaYieldVaultInterface extends Interface {
     values: [AddressLike, AddressLike, BigNumberish]
   ): string;
   encodeFunctionData(
-    functionFragment: "transferOwnership",
-    values: [AddressLike]
-  ): string;
-  encodeFunctionData(
     functionFragment: "withdraw",
     values: [BigNumberish, AddressLike, AddressLike]
   ): string;
@@ -402,6 +431,10 @@ export interface MetaYieldVaultInterface extends Interface {
   decodeFunctionResult(functionFragment: "CAKE", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "CAKE_WBNB_POOL",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "HARVEST_BOUNTY_BPS",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -419,6 +452,10 @@ export interface MetaYieldVaultInterface extends Interface {
   decodeFunctionResult(functionFragment: "MAX_BPS", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "PANCAKE_ROUTER",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "SWAP_SLIPPAGE_BPS",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "USDF", data: BytesLike): Result;
@@ -484,6 +521,14 @@ export interface MetaYieldVaultInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "initialEarnBps",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "initialLpBps",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "lastBnbPrice",
     data: BytesLike
   ): Result;
@@ -513,7 +558,6 @@ export interface MetaYieldVaultInterface extends Interface {
     functionFragment: "openHedgeKey",
     data: BytesLike
   ): Result;
-  decodeFunctionResult(functionFragment: "owner", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "pendingCake",
     data: BytesLike
@@ -552,38 +596,6 @@ export interface MetaYieldVaultInterface extends Interface {
     functionFragment: "regimeVolatilityThreshold",
     data: BytesLike
   ): Result;
-  decodeFunctionResult(
-    functionFragment: "renounceOwnership",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "setDepegThreshold",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "setDynamicAlloc",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "setHedgeConfig",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "setMinHarvestCake",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "setRebalanceDrift",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "setRegimeThreshold",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "setStrategyParams",
-    data: BytesLike
-  ): Result;
   decodeFunctionResult(functionFragment: "sharePrice", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "shouldHarvest",
@@ -592,6 +604,10 @@ export interface MetaYieldVaultInterface extends Interface {
   decodeFunctionResult(functionFragment: "symbol", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "totalAssets",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "totalBountiesPaid",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -605,10 +621,6 @@ export interface MetaYieldVaultInterface extends Interface {
   decodeFunctionResult(functionFragment: "transfer", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "transferFrom",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "transferOwnership",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "withdraw", data: BytesLike): Result;
@@ -714,12 +726,21 @@ export namespace EarnSkippedDepegEvent {
 export namespace HarvestedEvent {
   export type InputTuple = [
     cakeAmount: BigNumberish,
-    usdtCompounded: BigNumberish
+    usdtCompounded: BigNumberish,
+    caller: AddressLike,
+    bounty: BigNumberish
   ];
-  export type OutputTuple = [cakeAmount: bigint, usdtCompounded: bigint];
+  export type OutputTuple = [
+    cakeAmount: bigint,
+    usdtCompounded: bigint,
+    caller: string,
+    bounty: bigint
+  ];
   export interface OutputObject {
     cakeAmount: bigint;
     usdtCompounded: bigint;
+    caller: string;
+    bounty: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -732,19 +753,6 @@ export namespace HedgeClosedEvent {
   export type OutputTuple = [tradeHash: string];
   export interface OutputObject {
     tradeHash: string;
-  }
-  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
-  export type Filter = TypedDeferredTopicFilter<Event>;
-  export type Log = TypedEventLog<Event>;
-  export type LogDescription = TypedLogDescription<Event>;
-}
-
-export namespace HedgeConfigUpdatedEvent {
-  export type InputTuple = [perpRouter: AddressLike, hedgeBps: BigNumberish];
-  export type OutputTuple = [perpRouter: string, hedgeBps: bigint];
-  export interface OutputObject {
-    perpRouter: string;
-    hedgeBps: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -767,19 +775,6 @@ export namespace HedgeOpenedEvent {
     tradeHash: string;
     collateralUsdt: bigint;
     qty: bigint;
-  }
-  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
-  export type Filter = TypedDeferredTopicFilter<Event>;
-  export type Log = TypedEventLog<Event>;
-  export type LogDescription = TypedLogDescription<Event>;
-}
-
-export namespace OwnershipTransferredEvent {
-  export type InputTuple = [previousOwner: AddressLike, newOwner: AddressLike];
-  export type OutputTuple = [previousOwner: string, newOwner: string];
-  export interface OutputObject {
-    previousOwner: string;
-    newOwner: string;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -830,24 +825,6 @@ export namespace StrategyAllocatedEvent {
     earnAmt: bigint;
     lpAmt: bigint;
     buffer: bigint;
-  }
-  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
-  export type Filter = TypedDeferredTopicFilter<Event>;
-  export type Log = TypedEventLog<Event>;
-  export type LogDescription = TypedLogDescription<Event>;
-}
-
-export namespace StrategyParamsUpdatedEvent {
-  export type InputTuple = [
-    earnBps: BigNumberish,
-    lpBps: BigNumberish,
-    bufferBps: BigNumberish
-  ];
-  export type OutputTuple = [earnBps: bigint, lpBps: bigint, bufferBps: bigint];
-  export interface OutputObject {
-    earnBps: bigint;
-    lpBps: bigint;
-    bufferBps: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -987,6 +964,8 @@ export interface MetaYieldVault extends BaseContract {
 
   CAKE_WBNB_POOL: TypedContractMethod<[], [bigint], "view">;
 
+  HARVEST_BOUNTY_BPS: TypedContractMethod<[], [bigint], "view">;
+
   HARVEST_GAS_ESTIMATE: TypedContractMethod<[], [bigint], "view">;
 
   HARVEST_SAFETY_FACTOR: TypedContractMethod<[], [bigint], "view">;
@@ -996,6 +975,8 @@ export interface MetaYieldVault extends BaseContract {
   MAX_BPS: TypedContractMethod<[], [bigint], "view">;
 
   PANCAKE_ROUTER: TypedContractMethod<[], [string], "view">;
+
+  SWAP_SLIPPAGE_BPS: TypedContractMethod<[], [bigint], "view">;
 
   USDF: TypedContractMethod<[], [string], "view">;
 
@@ -1079,6 +1060,10 @@ export interface MetaYieldVault extends BaseContract {
 
   hedgeCollateralUsdt: TypedContractMethod<[], [bigint], "view">;
 
+  initialEarnBps: TypedContractMethod<[], [bigint], "view">;
+
+  initialLpBps: TypedContractMethod<[], [bigint], "view">;
+
   lastBnbPrice: TypedContractMethod<[], [bigint], "view">;
 
   lastPriceTimestamp: TypedContractMethod<[], [bigint], "view">;
@@ -1112,8 +1097,6 @@ export interface MetaYieldVault extends BaseContract {
   name: TypedContractMethod<[], [string], "view">;
 
   openHedgeKey: TypedContractMethod<[], [string], "view">;
-
-  owner: TypedContractMethod<[], [string], "view">;
 
   pendingCake: TypedContractMethod<[], [bigint], "view">;
 
@@ -1153,50 +1136,6 @@ export interface MetaYieldVault extends BaseContract {
 
   regimeVolatilityThreshold: TypedContractMethod<[], [bigint], "view">;
 
-  renounceOwnership: TypedContractMethod<[], [void], "nonpayable">;
-
-  setDepegThreshold: TypedContractMethod<
-    [_thresholdBps: BigNumberish],
-    [void],
-    "nonpayable"
-  >;
-
-  setDynamicAlloc: TypedContractMethod<
-    [enabled: boolean, _minEarn: BigNumberish, _maxEarn: BigNumberish],
-    [void],
-    "nonpayable"
-  >;
-
-  setHedgeConfig: TypedContractMethod<
-    [_perpRouter: AddressLike, _hedgeBps: BigNumberish],
-    [void],
-    "nonpayable"
-  >;
-
-  setMinHarvestCake: TypedContractMethod<
-    [_minCake: BigNumberish],
-    [void],
-    "nonpayable"
-  >;
-
-  setRebalanceDrift: TypedContractMethod<
-    [_driftBps: BigNumberish],
-    [void],
-    "nonpayable"
-  >;
-
-  setRegimeThreshold: TypedContractMethod<
-    [_thresholdBps: BigNumberish],
-    [void],
-    "nonpayable"
-  >;
-
-  setStrategyParams: TypedContractMethod<
-    [_earnBps: BigNumberish, _lpBps: BigNumberish, _bufferBps: BigNumberish],
-    [void],
-    "nonpayable"
-  >;
-
   sharePrice: TypedContractMethod<[], [bigint], "view">;
 
   shouldHarvest: TypedContractMethod<[], [boolean], "view">;
@@ -1204,6 +1143,8 @@ export interface MetaYieldVault extends BaseContract {
   symbol: TypedContractMethod<[], [string], "view">;
 
   totalAssets: TypedContractMethod<[], [bigint], "view">;
+
+  totalBountiesPaid: TypedContractMethod<[], [bigint], "view">;
 
   totalCakeHarvested: TypedContractMethod<[], [bigint], "view">;
 
@@ -1218,12 +1159,6 @@ export interface MetaYieldVault extends BaseContract {
   transferFrom: TypedContractMethod<
     [from: AddressLike, to: AddressLike, value: BigNumberish],
     [boolean],
-    "nonpayable"
-  >;
-
-  transferOwnership: TypedContractMethod<
-    [newOwner: AddressLike],
-    [void],
     "nonpayable"
   >;
 
@@ -1250,6 +1185,9 @@ export interface MetaYieldVault extends BaseContract {
     nameOrSignature: "CAKE_WBNB_POOL"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
+    nameOrSignature: "HARVEST_BOUNTY_BPS"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "HARVEST_GAS_ESTIMATE"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
@@ -1264,6 +1202,9 @@ export interface MetaYieldVault extends BaseContract {
   getFunction(
     nameOrSignature: "PANCAKE_ROUTER"
   ): TypedContractMethod<[], [string], "view">;
+  getFunction(
+    nameOrSignature: "SWAP_SLIPPAGE_BPS"
+  ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "USDF"
   ): TypedContractMethod<[], [string], "view">;
@@ -1365,6 +1306,12 @@ export interface MetaYieldVault extends BaseContract {
     nameOrSignature: "hedgeCollateralUsdt"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
+    nameOrSignature: "initialEarnBps"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "initialLpBps"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "lastBnbPrice"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
@@ -1414,9 +1361,6 @@ export interface MetaYieldVault extends BaseContract {
     nameOrSignature: "openHedgeKey"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
-    nameOrSignature: "owner"
-  ): TypedContractMethod<[], [string], "view">;
-  getFunction(
     nameOrSignature: "pendingCake"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
@@ -1454,42 +1398,6 @@ export interface MetaYieldVault extends BaseContract {
     nameOrSignature: "regimeVolatilityThreshold"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
-    nameOrSignature: "renounceOwnership"
-  ): TypedContractMethod<[], [void], "nonpayable">;
-  getFunction(
-    nameOrSignature: "setDepegThreshold"
-  ): TypedContractMethod<[_thresholdBps: BigNumberish], [void], "nonpayable">;
-  getFunction(
-    nameOrSignature: "setDynamicAlloc"
-  ): TypedContractMethod<
-    [enabled: boolean, _minEarn: BigNumberish, _maxEarn: BigNumberish],
-    [void],
-    "nonpayable"
-  >;
-  getFunction(
-    nameOrSignature: "setHedgeConfig"
-  ): TypedContractMethod<
-    [_perpRouter: AddressLike, _hedgeBps: BigNumberish],
-    [void],
-    "nonpayable"
-  >;
-  getFunction(
-    nameOrSignature: "setMinHarvestCake"
-  ): TypedContractMethod<[_minCake: BigNumberish], [void], "nonpayable">;
-  getFunction(
-    nameOrSignature: "setRebalanceDrift"
-  ): TypedContractMethod<[_driftBps: BigNumberish], [void], "nonpayable">;
-  getFunction(
-    nameOrSignature: "setRegimeThreshold"
-  ): TypedContractMethod<[_thresholdBps: BigNumberish], [void], "nonpayable">;
-  getFunction(
-    nameOrSignature: "setStrategyParams"
-  ): TypedContractMethod<
-    [_earnBps: BigNumberish, _lpBps: BigNumberish, _bufferBps: BigNumberish],
-    [void],
-    "nonpayable"
-  >;
-  getFunction(
     nameOrSignature: "sharePrice"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
@@ -1500,6 +1408,9 @@ export interface MetaYieldVault extends BaseContract {
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "totalAssets"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "totalBountiesPaid"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "totalCakeHarvested"
@@ -1521,9 +1432,6 @@ export interface MetaYieldVault extends BaseContract {
     [boolean],
     "nonpayable"
   >;
-  getFunction(
-    nameOrSignature: "transferOwnership"
-  ): TypedContractMethod<[newOwner: AddressLike], [void], "nonpayable">;
   getFunction(
     nameOrSignature: "withdraw"
   ): TypedContractMethod<
@@ -1582,25 +1490,11 @@ export interface MetaYieldVault extends BaseContract {
     HedgeClosedEvent.OutputObject
   >;
   getEvent(
-    key: "HedgeConfigUpdated"
-  ): TypedContractEvent<
-    HedgeConfigUpdatedEvent.InputTuple,
-    HedgeConfigUpdatedEvent.OutputTuple,
-    HedgeConfigUpdatedEvent.OutputObject
-  >;
-  getEvent(
     key: "HedgeOpened"
   ): TypedContractEvent<
     HedgeOpenedEvent.InputTuple,
     HedgeOpenedEvent.OutputTuple,
     HedgeOpenedEvent.OutputObject
-  >;
-  getEvent(
-    key: "OwnershipTransferred"
-  ): TypedContractEvent<
-    OwnershipTransferredEvent.InputTuple,
-    OwnershipTransferredEvent.OutputTuple,
-    OwnershipTransferredEvent.OutputObject
   >;
   getEvent(
     key: "Rebalanced"
@@ -1622,13 +1516,6 @@ export interface MetaYieldVault extends BaseContract {
     StrategyAllocatedEvent.InputTuple,
     StrategyAllocatedEvent.OutputTuple,
     StrategyAllocatedEvent.OutputObject
-  >;
-  getEvent(
-    key: "StrategyParamsUpdated"
-  ): TypedContractEvent<
-    StrategyParamsUpdatedEvent.InputTuple,
-    StrategyParamsUpdatedEvent.OutputTuple,
-    StrategyParamsUpdatedEvent.OutputObject
   >;
   getEvent(
     key: "Transfer"
@@ -1715,7 +1602,7 @@ export interface MetaYieldVault extends BaseContract {
       EarnSkippedDepegEvent.OutputObject
     >;
 
-    "Harvested(uint256,uint256)": TypedContractEvent<
+    "Harvested(uint256,uint256,address,uint256)": TypedContractEvent<
       HarvestedEvent.InputTuple,
       HarvestedEvent.OutputTuple,
       HarvestedEvent.OutputObject
@@ -1737,17 +1624,6 @@ export interface MetaYieldVault extends BaseContract {
       HedgeClosedEvent.OutputObject
     >;
 
-    "HedgeConfigUpdated(address,uint256)": TypedContractEvent<
-      HedgeConfigUpdatedEvent.InputTuple,
-      HedgeConfigUpdatedEvent.OutputTuple,
-      HedgeConfigUpdatedEvent.OutputObject
-    >;
-    HedgeConfigUpdated: TypedContractEvent<
-      HedgeConfigUpdatedEvent.InputTuple,
-      HedgeConfigUpdatedEvent.OutputTuple,
-      HedgeConfigUpdatedEvent.OutputObject
-    >;
-
     "HedgeOpened(bytes32,uint256,uint80)": TypedContractEvent<
       HedgeOpenedEvent.InputTuple,
       HedgeOpenedEvent.OutputTuple,
@@ -1757,17 +1633,6 @@ export interface MetaYieldVault extends BaseContract {
       HedgeOpenedEvent.InputTuple,
       HedgeOpenedEvent.OutputTuple,
       HedgeOpenedEvent.OutputObject
-    >;
-
-    "OwnershipTransferred(address,address)": TypedContractEvent<
-      OwnershipTransferredEvent.InputTuple,
-      OwnershipTransferredEvent.OutputTuple,
-      OwnershipTransferredEvent.OutputObject
-    >;
-    OwnershipTransferred: TypedContractEvent<
-      OwnershipTransferredEvent.InputTuple,
-      OwnershipTransferredEvent.OutputTuple,
-      OwnershipTransferredEvent.OutputObject
     >;
 
     "Rebalanced(uint256,uint256)": TypedContractEvent<
@@ -1801,17 +1666,6 @@ export interface MetaYieldVault extends BaseContract {
       StrategyAllocatedEvent.InputTuple,
       StrategyAllocatedEvent.OutputTuple,
       StrategyAllocatedEvent.OutputObject
-    >;
-
-    "StrategyParamsUpdated(uint256,uint256,uint256)": TypedContractEvent<
-      StrategyParamsUpdatedEvent.InputTuple,
-      StrategyParamsUpdatedEvent.OutputTuple,
-      StrategyParamsUpdatedEvent.OutputObject
-    >;
-    StrategyParamsUpdated: TypedContractEvent<
-      StrategyParamsUpdatedEvent.InputTuple,
-      StrategyParamsUpdatedEvent.OutputTuple,
-      StrategyParamsUpdatedEvent.OutputObject
     >;
 
     "Transfer(address,address,uint256)": TypedContractEvent<

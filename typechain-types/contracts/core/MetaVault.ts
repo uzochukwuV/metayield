@@ -39,6 +39,7 @@ export interface MetaVaultInterface extends Interface {
       | "decimals"
       | "deposit"
       | "engineCore"
+      | "highWatermark"
       | "lastHarvestAssets"
       | "lastHarvestTime"
       | "maxDeposit"
@@ -73,6 +74,7 @@ export interface MetaVaultInterface extends Interface {
       | "Deposit"
       | "FeeCompounded"
       | "HarvestRecorded"
+      | "HighWatermarkUpdated"
       | "Transfer"
       | "Withdraw"
   ): EventFragment;
@@ -118,6 +120,10 @@ export interface MetaVaultInterface extends Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "engineCore",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "highWatermark",
     values?: undefined
   ): string;
   encodeFunctionData(
@@ -240,6 +246,10 @@ export interface MetaVaultInterface extends Interface {
   decodeFunctionResult(functionFragment: "decimals", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "deposit", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "engineCore", data: BytesLike): Result;
+  decodeFunctionResult(
+    functionFragment: "highWatermark",
+    data: BytesLike
+  ): Result;
   decodeFunctionResult(
     functionFragment: "lastHarvestAssets",
     data: BytesLike
@@ -400,6 +410,22 @@ export namespace HarvestRecordedEvent {
   export type LogDescription = TypedLogDescription<Event>;
 }
 
+export namespace HighWatermarkUpdatedEvent {
+  export type InputTuple = [
+    newWatermark: BigNumberish,
+    timestamp: BigNumberish
+  ];
+  export type OutputTuple = [newWatermark: bigint, timestamp: bigint];
+  export interface OutputObject {
+    newWatermark: bigint;
+    timestamp: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
 export namespace TransferEvent {
   export type InputTuple = [
     from: AddressLike,
@@ -534,6 +560,8 @@ export interface MetaVault extends BaseContract {
   >;
 
   engineCore: TypedContractMethod<[], [string], "view">;
+
+  highWatermark: TypedContractMethod<[], [bigint], "view">;
 
   lastHarvestAssets: TypedContractMethod<[], [bigint], "view">;
 
@@ -673,6 +701,9 @@ export interface MetaVault extends BaseContract {
     nameOrSignature: "engineCore"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
+    nameOrSignature: "highWatermark"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "lastHarvestAssets"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
@@ -808,6 +839,13 @@ export interface MetaVault extends BaseContract {
     HarvestRecordedEvent.OutputObject
   >;
   getEvent(
+    key: "HighWatermarkUpdated"
+  ): TypedContractEvent<
+    HighWatermarkUpdatedEvent.InputTuple,
+    HighWatermarkUpdatedEvent.OutputTuple,
+    HighWatermarkUpdatedEvent.OutputObject
+  >;
+  getEvent(
     key: "Transfer"
   ): TypedContractEvent<
     TransferEvent.InputTuple,
@@ -876,6 +914,17 @@ export interface MetaVault extends BaseContract {
       HarvestRecordedEvent.InputTuple,
       HarvestRecordedEvent.OutputTuple,
       HarvestRecordedEvent.OutputObject
+    >;
+
+    "HighWatermarkUpdated(uint256,uint256)": TypedContractEvent<
+      HighWatermarkUpdatedEvent.InputTuple,
+      HighWatermarkUpdatedEvent.OutputTuple,
+      HighWatermarkUpdatedEvent.OutputObject
+    >;
+    HighWatermarkUpdated: TypedContractEvent<
+      HighWatermarkUpdatedEvent.InputTuple,
+      HighWatermarkUpdatedEvent.OutputTuple,
+      HighWatermarkUpdatedEvent.OutputObject
     >;
 
     "Transfer(address,address,uint256)": TypedContractEvent<

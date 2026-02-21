@@ -28,10 +28,15 @@ export interface StrategyRouterInterface extends Interface {
     nameOrSignature:
       | "BUFFER_BPS"
       | "BUSD"
+      | "CAKE"
+      | "CAKE_WBNB_PAIR"
       | "DRIFT_THRESHOLD_BPS"
+      | "MASTERCHEF_V2"
+      | "PANCAKE_ROUTER"
       | "USDF"
       | "USDF_USDT_PAIR"
       | "USDT"
+      | "WBNB"
       | "currentMode"
       | "deployCapital"
       | "earnAdapter"
@@ -57,8 +62,21 @@ export interface StrategyRouterInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "BUSD", values?: undefined): string;
+  encodeFunctionData(functionFragment: "CAKE", values?: undefined): string;
+  encodeFunctionData(
+    functionFragment: "CAKE_WBNB_PAIR",
+    values?: undefined
+  ): string;
   encodeFunctionData(
     functionFragment: "DRIFT_THRESHOLD_BPS",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "MASTERCHEF_V2",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "PANCAKE_ROUTER",
     values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "USDF", values?: undefined): string;
@@ -67,6 +85,7 @@ export interface StrategyRouterInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "USDT", values?: undefined): string;
+  encodeFunctionData(functionFragment: "WBNB", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "currentMode",
     values?: undefined
@@ -117,8 +136,21 @@ export interface StrategyRouterInterface extends Interface {
 
   decodeFunctionResult(functionFragment: "BUFFER_BPS", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "BUSD", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "CAKE", data: BytesLike): Result;
+  decodeFunctionResult(
+    functionFragment: "CAKE_WBNB_PAIR",
+    data: BytesLike
+  ): Result;
   decodeFunctionResult(
     functionFragment: "DRIFT_THRESHOLD_BPS",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "MASTERCHEF_V2",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "PANCAKE_ROUTER",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "USDF", data: BytesLike): Result;
@@ -127,6 +159,7 @@ export interface StrategyRouterInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "USDT", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "WBNB", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "currentMode",
     data: BytesLike
@@ -274,13 +307,23 @@ export interface StrategyRouter extends BaseContract {
 
   BUSD: TypedContractMethod<[], [string], "view">;
 
+  CAKE: TypedContractMethod<[], [string], "view">;
+
+  CAKE_WBNB_PAIR: TypedContractMethod<[], [string], "view">;
+
   DRIFT_THRESHOLD_BPS: TypedContractMethod<[], [bigint], "view">;
+
+  MASTERCHEF_V2: TypedContractMethod<[], [string], "view">;
+
+  PANCAKE_ROUTER: TypedContractMethod<[], [string], "view">;
 
   USDF: TypedContractMethod<[], [string], "view">;
 
   USDF_USDT_PAIR: TypedContractMethod<[], [string], "view">;
 
   USDT: TypedContractMethod<[], [string], "view">;
+
+  WBNB: TypedContractMethod<[], [string], "view">;
 
   currentMode: TypedContractMethod<[], [bigint], "view">;
 
@@ -325,8 +368,20 @@ export interface StrategyRouter extends BaseContract {
     nameOrSignature: "BUSD"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
+    nameOrSignature: "CAKE"
+  ): TypedContractMethod<[], [string], "view">;
+  getFunction(
+    nameOrSignature: "CAKE_WBNB_PAIR"
+  ): TypedContractMethod<[], [string], "view">;
+  getFunction(
     nameOrSignature: "DRIFT_THRESHOLD_BPS"
   ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "MASTERCHEF_V2"
+  ): TypedContractMethod<[], [string], "view">;
+  getFunction(
+    nameOrSignature: "PANCAKE_ROUTER"
+  ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "USDF"
   ): TypedContractMethod<[], [string], "view">;
@@ -335,6 +390,9 @@ export interface StrategyRouter extends BaseContract {
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "USDT"
+  ): TypedContractMethod<[], [string], "view">;
+  getFunction(
+    nameOrSignature: "WBNB"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "currentMode"
