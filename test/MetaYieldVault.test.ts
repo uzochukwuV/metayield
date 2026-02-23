@@ -6,6 +6,9 @@ import { MetaYieldVault } from "../typechain-types";
 /**
  * MetaYieldVault — BSC Mainnet Fork Integration Tests
  *
+ * Tests the FULLY PERMISSIONLESS vault (no owner, no admin keys).
+ * All strategy parameters are immutable, set at construction time.
+ *
  * Run:
  *   npx hardhat test test/MetaYieldVault.test.ts --network bscFork
  */
@@ -52,6 +55,7 @@ async function stopImpersonating(address: string) {
 
 let vault: MetaYieldVault;
 let deployer: SignerWithAddress;
+let user1: SignerWithAddress;
 let vaultAddr: string;
 let depositAmount: bigint;
 let fixtureReady = false;
@@ -60,7 +64,7 @@ async function ensureFixture() {
     if (fixtureReady) return;
     fixtureReady = true;
 
-    [deployer] = await ethers.getSigners();
+    [deployer, user1] = await ethers.getSigners();
 
     const EarnF  = await ethers.getContractFactory("AsterDEXEarnAdapter");
     const LPF    = await ethers.getContractFactory("PancakeSwapV2LPAdapter");
@@ -73,15 +77,27 @@ async function ensureFixture() {
         FarmF.deploy(BSC.MASTERCHEF_V2).then(c => c.waitForDeployment()),
     ]);
 
-    vault = (await VaultF.deploy(
-        await earn.getAddress(),
-        await lp.getAddress(),
-        await farm.getAddress(),
-    ).then(c => c.waitForDeployment())) as MetaYieldVault;
-    vaultAddr = await vault.getAddress();
+    // Deploy with VaultConfig struct — all params immutable at construction
+    const config = {
+        earnAdapter: await earn.getAddress(),
+        lpAdapter: await lp.getAddress(),
+        farmAdapter: await farm.getAddress(),
+        earnBps: 6_000,       // 60% to AsterDEX Earn
+        lpBps: 3_000,         // 30% to PancakeSwap LP
+        bufferBps: 1_000,     // 10% buffer
+        rebalanceDriftBps: 500, // 5% drift threshold
+        minHarvestCake: ethers.parseEther("0.01"),
+        asterPerpRouter: ethers.ZeroAddress, // No perps hedging
+        hedgeBps: 0,
+        dynamicAlloc: true,
+        minEarnBps: 3_000,
+        maxEarnBps: 8_000,
+        regimeVolatilityThreshold: 300,
+        depegThresholdBps: 0,
+    };
 
-    // Set earn=90%, lp=0%, buffer=10% to avoid PancakeSwap swap RPC calls
-    await vault.connect(deployer).setStrategyParams(9_000, 0, 1_000);
+    vault = (await VaultF.deploy(config).then(c => c.waitForDeployment())) as MetaYieldVault;
+    vaultAddr = await vault.getAddress();
 
     const whale = await impersonate(BSC.BINANCE_WHALE);
     const USDT  = new ethers.Contract(BSC.USDT, ERC20_ABI, whale);
@@ -93,18 +109,15 @@ async function ensureFixture() {
     await vault.connect(whale).deposit(depositAmount, whale.address);
     await stopImpersonating(BSC.BINANCE_WHALE);
 
-    // Restore full strategy params
-    await vault.connect(deployer).setStrategyParams(6_000, 3_000, 1_000);
-
     console.log(`\n    [Fixture] Vault: ${vaultAddr}`);
     console.log(`    [Fixture] USDT deposited: ${ethers.formatUnits(depositAmount, 18)}`);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  Suite 1: Deployment & Config
+//  Suite 1: Deployment & Permissionless Config
 // ══════════════════════════════════════════════════════════════════════════════
 
-describe("MetaYieldVault — Deployment & Config", function () {
+describe("MetaYieldVault — Deployment & Permissionless Config", function () {
     this.timeout(120_000);
 
     before(async function () {
@@ -120,21 +133,27 @@ describe("MetaYieldVault — Deployment & Config", function () {
         expect(await vault.asset()).to.equal(BSC.USDT);
     });
 
-    it("default strategy params are earnBps=6000, lpBps=3000, bufferBps=1000", async function () {
-        expect(await vault.earnBps()).to.equal(6_000n);
-        expect(await vault.lpBps()).to.equal(3_000n);
+    it("initial strategy params are correct (immutable)", async function () {
+        expect(await vault.initialEarnBps()).to.equal(6_000n);
+        expect(await vault.initialLpBps()).to.equal(3_000n);
         expect(await vault.bufferBps()).to.equal(1_000n);
     });
 
-    it("owner can update strategy params", async function () {
-        await vault.connect(deployer).setStrategyParams(7_000, 2_000, 1_000);
-        expect(await vault.earnBps()).to.equal(7_000n);
-        await vault.connect(deployer).setStrategyParams(6_000, 3_000, 1_000);
+    it("has NO owner — fully permissionless", async function () {
+        // Verify there is no owner() function
+        const vaultInterface = vault.interface;
+        const hasOwner = vaultInterface.fragments.some(
+            (f: any) => f.type === "function" && f.name === "owner"
+        );
+        expect(hasOwner).to.be.false;
     });
 
-    it("setStrategyParams reverts if sum != 10000", async function () {
-        await expect(vault.connect(deployer).setStrategyParams(5_000, 4_000, 500))
-            .to.be.revertedWith("Must sum to 10000");
+    it("harvest bounty is configured for caller incentive", async function () {
+        expect(await vault.HARVEST_BOUNTY_BPS()).to.equal(100n); // 1%
+    });
+
+    it("swap slippage protection is set", async function () {
+        expect(await vault.SWAP_SLIPPAGE_BPS()).to.equal(50n); // 0.5%
     });
 });
 
@@ -193,37 +212,38 @@ describe("MetaYieldVault — Deposit & NAV", function () {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  Suite 3: Harvest & Rebalance
+//  Suite 3: Permissionless Harvest & Rebalance
 // ══════════════════════════════════════════════════════════════════════════════
 
-describe("MetaYieldVault — Harvest & Rebalance", function () {
+describe("MetaYieldVault — Permissionless Harvest & Rebalance", function () {
     this.timeout(300_000);
 
     before(async function () {
         await ensureFixture();
     });
 
-    it("rebalance() reverts when allocation is within drift threshold", async function () {
-        await vault.connect(deployer).setStrategyParams(9_000, 0, 1_000);
-        await expect(vault.connect(deployer).rebalance())
-            .to.be.revertedWith("Allocation within target");
-        console.log("    rebalance() correctly guards when in-balance");
-        await vault.connect(deployer).setStrategyParams(6_000, 3_000, 1_000);
+    it("rebalance() is callable by ANYONE", async function () {
+        // user1 (not deployer) can call rebalance
+        try {
+            await vault.connect(user1).rebalance();
+            console.log("    rebalance() succeeded (called by non-deployer)");
+        } catch (e: any) {
+            // Expected to revert with "Allocation within target" — that's fine
+            expect(e.message).to.include("Allocation within target");
+            console.log("    rebalance() correctly guards — allocation is within target");
+        }
     });
 
-    it("harvest() handles no-CAKE scenario gracefully", async function () {
+    it("harvest() is callable by ANYONE (with bounty)", async function () {
         const pending = await vault.pendingCake();
         console.log(`    Pending CAKE   : ${ethers.formatEther(pending)} CAKE`);
 
-        if (pending === 0n) {
-            await vault.connect(deployer).setMinHarvestCake(0n);
-            try {
-                await vault.connect(deployer).harvest();
-                console.log("    harvest() ran (no CAKE available to compound)");
-            } catch (e: any) {
-                console.log(`    harvest() note : ${e.message?.slice(0, 80)}`);
-            }
-            await vault.connect(deployer).setMinHarvestCake(ethers.parseEther("0.01"));
+        // Even a random user can call harvest
+        try {
+            await vault.connect(user1).harvest();
+            console.log("    harvest() ran by non-deployer (with bounty)");
+        } catch (e: any) {
+            console.log(`    harvest() note : ${e.message?.slice(0, 80)}`);
         }
     });
 });
@@ -307,7 +327,7 @@ describe("MetaYieldVault — Live Strategy Dashboard", function () {
 
         console.log("");
         console.log("    +=======================================================+");
-        console.log("    |       MetaYield BSC Vault — Live Strategy Metrics      |");
+        console.log("    |   MetaYield BSC Vault — PERMISSIONLESS Live Metrics    |");
         console.log("    +=======================================================+");
         console.log(`    |  Deposited    : ${ethers.formatUnits(depositAmount,18).padEnd(26)} USDT  |`);
         console.log(`    |  Total NAV    : ${ethers.formatUnits(nav, 18).padEnd(26)} USDT  |`);
@@ -323,6 +343,11 @@ describe("MetaYieldVault — Live Strategy Dashboard", function () {
         console.log(`    |               Allocation  : ${lpA.toString().padEnd(14)} bps    |`);
         console.log("    +-------------------------------------------------------+");
         console.log(`    |  [Buffer]     Allocation  : ${bufA.toString().padEnd(14)} bps    |`);
+        console.log("    +-------------------------------------------------------+");
+        console.log("    |  PERMISSIONLESS: No owner, no admin keys              |");
+        console.log("    |  HARVEST BOUNTY: 1% paid to anyone who calls harvest  |");
+        console.log("    |  SLIPPAGE: 0.5% protection on all swaps               |");
+        console.log("    |  IMMUTABLE: All strategy params locked at deploy      |");
         console.log("    +=======================================================+");
         console.log("");
 

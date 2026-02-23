@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "../interfaces/IAsterPerp.sol";
 
@@ -48,8 +47,8 @@ interface IAdapter {
 
 /**
  * @title MetaYieldVault
- * @notice Self-Driving Yield Engine — ERC4626 vault that autonomously orchestrates
- *         three stacked yield strategies on BNB Chain:
+ * @notice Self-Driving Yield Engine — FULLY PERMISSIONLESS ERC4626 vault that
+ *         autonomously orchestrates three stacked yield strategies on BNB Chain.
  *
  *   Layer 1 (Primary — 60%): AsterDEX Earn
  *     USDT → USDF_MINTER → USDF → ASUSDF_MINTER → asUSDF
@@ -59,21 +58,25 @@ interface IAdapter {
  *     USDT → swap to CAKE + WBNB → add liquidity → stake in pool 2
  *     Yield: LP trading fees + CAKE farm emissions.
  *
- *   Layer 3 (Hedge — optional, hedgeBps > 0): Aster Perps delta-neutral short
+ *   Layer 3 (Hedge — optional, immutable config): Aster Perps delta-neutral short
  *     asUSDF collateral → short BNB on Aster Perps (Hedge Mode)
  *     Protects LP position from IL during BNB drawdowns.
  *
  * Autonomous operations (permissionless — anyone can call):
  *   harvest()    — Claim CAKE from farm, swap → USDT, compound back.
+ *                  Caller receives HARVEST_BOUNTY_BPS of harvested value.
  *   rebalance()  — Re-align allocation to targets when drift > rebalanceDriftBps.
  *
- * Non-custodial:
- *   Users receive MYV shares proportional to NAV. Owner can update strategy
- *   parameters but CANNOT move user funds out of the vault.
+ * FULLY PERMISSIONLESS:
+ *   - NO owner. NO admin keys. NO Ownable. NO pause.
+ *   - All strategy parameters are IMMUTABLE (set at construction).
+ *   - Dynamic allocation adjusts autonomously based on on-chain APR tracking.
+ *   - Regime switching is fully deterministic from on-chain BNB price.
+ *   - Harvest bounty incentivizes callers without any centralized keeper.
  *
  * @dev Built for the BNB Chain Good Vibes Only Hackathon.
  */
-contract MetaYieldVault is ERC4626, Ownable, ReentrancyGuard {
+contract MetaYieldVault is ERC4626, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ============ Regime Enum ============
@@ -108,6 +111,12 @@ contract MetaYieldVault is ERC4626, Ownable, ReentrancyGuard {
     /// @notice Harvest only when CAKE value >= HARVEST_SAFETY_FACTOR% of estimated gas cost.
     uint256 public constant HARVEST_SAFETY_FACTOR = 300;
 
+    /// @notice Bounty paid to harvest() caller in bps of harvested USDT (1%)
+    uint256 public constant HARVEST_BOUNTY_BPS = 100;
+
+    /// @notice Minimum slippage protection for swaps (0.5%)
+    uint256 public constant SWAP_SLIPPAGE_BPS = 50;
+
     // Adapter action constants
     uint8 private constant EARN_DEPOSIT          = 0;
     uint8 private constant EARN_REQUEST_WITHDRAW = 2;
@@ -128,24 +137,39 @@ contract MetaYieldVault is ERC4626, Ownable, ReentrancyGuard {
     address public immutable lpAdapter;
     address public immutable farmAdapter;
 
-    // ============ Strategy Configuration ============
+    // ============ Strategy Configuration (immutable) ============
 
-    uint256 public earnBps = 6_000;
-    uint256 public lpBps   = 4_000;
-    uint256 public bufferBps = 1_000;
-    uint256 public rebalanceDriftBps = 500;
-    uint256 public minHarvestCake = 0.01 ether;
+    /// @notice Target earn allocation in basis points
+    uint256 public immutable initialEarnBps;
+    /// @notice Target LP allocation in basis points
+    uint256 public immutable initialLpBps;
+    /// @notice Buffer allocation in basis points
+    uint256 public immutable bufferBps;
+    /// @notice Rebalance drift threshold in basis points
+    uint256 public immutable rebalanceDriftBps;
+    /// @notice Minimum CAKE for harvest to proceed
+    uint256 public immutable minHarvestCake;
 
-    // ============ Hedge Configuration ============
+    // ============ Hedge Configuration (immutable) ============
 
-    address public asterPerpRouter;
-    uint256 public hedgeBps;
+    address public immutable asterPerpRouter;
+    uint256 public immutable hedgeBps;
+
+    // ============ Dynamic Allocation (immutable bounds) ============
+
+    bool   public immutable dynamicAlloc;
+    uint256 public immutable minEarnBps;
+    uint256 public immutable maxEarnBps;
+
+    // ============ Regime Config (immutable) ============
+
+    uint256 public immutable regimeVolatilityThreshold;
+    uint256 public immutable depegThresholdBps;
 
     // ============ Dynamic Allocation State ============
 
-    bool public dynamicAlloc;
-    uint256 public minEarnBps = 3_000;
-    uint256 public maxEarnBps = 8_000;
+    uint256 public earnBps;
+    uint256 public lpBps;
     uint256 public earnAprBps;
     uint256 public lpAprBps;
 
@@ -158,8 +182,6 @@ contract MetaYieldVault is ERC4626, Ownable, ReentrancyGuard {
     // ============ Regime State ============
 
     Regime public currentRegime;
-    uint256 public regimeVolatilityThreshold = 300;
-    uint256 public depegThresholdBps = 0;
     uint256 public lastBnbPrice;
     uint256 public lastPriceTimestamp;
 
@@ -171,19 +193,18 @@ contract MetaYieldVault is ERC4626, Ownable, ReentrancyGuard {
     // ============ State Tracking ============
 
     uint256 public totalCakeHarvested;
+    uint256 public totalBountiesPaid;
     mapping(address => uint256) public pendingWithdrawRequest;
     mapping(address => uint256) public pendingWithdrawShares;
 
     // ============ Events ============
 
     event StrategyAllocated(uint256 earnAmt, uint256 lpAmt, uint256 buffer);
-    event Harvested(uint256 cakeAmount, uint256 usdtCompounded);
+    event Harvested(uint256 cakeAmount, uint256 usdtCompounded, address indexed caller, uint256 bounty);
     event EarnSkippedDepeg(uint256 usdtHeld, uint256 rateObserved);
     event Rebalanced(uint256 earnBpsActual, uint256 timestamp);
     event WithdrawRequested(address indexed user, uint256 shares, uint256 asUsdfAmount);
     event WithdrawClaimed(address indexed user, uint256 usdtReceived);
-    event StrategyParamsUpdated(uint256 earnBps, uint256 lpBps, uint256 bufferBps);
-    event HedgeConfigUpdated(address perpRouter, uint256 hedgeBps);
     event HedgeOpened(bytes32 indexed tradeHash, uint256 collateralUsdt, uint80 qty);
     event HedgeClosed(bytes32 indexed tradeHash);
     event AllocationAutoAdjusted(uint256 newEarnBps, uint256 newLpBps, uint256 earnAprBps, uint256 lpAprBps);
@@ -192,21 +213,62 @@ contract MetaYieldVault is ERC4626, Ownable, ReentrancyGuard {
 
     // ============ Constructor ============
 
-    constructor(
-        address _earnAdapter,
-        address _lpAdapter,
-        address _farmAdapter
-    )
+    struct VaultConfig {
+        address earnAdapter;
+        address lpAdapter;
+        address farmAdapter;
+        uint256 earnBps;
+        uint256 lpBps;
+        uint256 bufferBps;
+        uint256 rebalanceDriftBps;
+        uint256 minHarvestCake;
+        address asterPerpRouter;
+        uint256 hedgeBps;
+        bool    dynamicAlloc;
+        uint256 minEarnBps;
+        uint256 maxEarnBps;
+        uint256 regimeVolatilityThreshold;
+        uint256 depegThresholdBps;
+    }
+
+    constructor(VaultConfig memory cfg)
         ERC4626(IERC20(USDT))
         ERC20("MetaYield BSC Vault", "MYV")
-        Ownable(msg.sender)
     {
-        require(_earnAdapter  != address(0), "Invalid earnAdapter");
-        require(_lpAdapter    != address(0), "Invalid lpAdapter");
-        require(_farmAdapter  != address(0), "Invalid farmAdapter");
-        earnAdapter  = _earnAdapter;
-        lpAdapter    = _lpAdapter;
-        farmAdapter  = _farmAdapter;
+        require(cfg.earnAdapter  != address(0), "Invalid earnAdapter");
+        require(cfg.lpAdapter    != address(0), "Invalid lpAdapter");
+        require(cfg.farmAdapter  != address(0), "Invalid farmAdapter");
+        require(cfg.earnBps + cfg.lpBps + cfg.bufferBps == MAX_BPS, "Must sum to 10000");
+        require(cfg.rebalanceDriftBps >= 50 && cfg.rebalanceDriftBps <= 2_000, "Drift: 0.5%-20%");
+        require(cfg.hedgeBps <= 5_000, "Hedge cannot exceed 50%");
+        if (cfg.dynamicAlloc) {
+            require(cfg.minEarnBps < cfg.maxEarnBps, "Invalid bounds");
+            require(cfg.maxEarnBps + cfg.bufferBps <= MAX_BPS, "Bounds overflow buffer");
+        }
+
+        earnAdapter  = cfg.earnAdapter;
+        lpAdapter    = cfg.lpAdapter;
+        farmAdapter  = cfg.farmAdapter;
+
+        initialEarnBps = cfg.earnBps;
+        initialLpBps   = cfg.lpBps;
+        bufferBps      = cfg.bufferBps;
+        rebalanceDriftBps = cfg.rebalanceDriftBps;
+        minHarvestCake = cfg.minHarvestCake;
+
+        asterPerpRouter = cfg.asterPerpRouter;
+        hedgeBps        = cfg.hedgeBps;
+
+        dynamicAlloc = cfg.dynamicAlloc;
+        minEarnBps   = cfg.dynamicAlloc ? cfg.minEarnBps : cfg.earnBps;
+        maxEarnBps   = cfg.dynamicAlloc ? cfg.maxEarnBps : cfg.earnBps;
+
+        regimeVolatilityThreshold = cfg.regimeVolatilityThreshold > 0 ? cfg.regimeVolatilityThreshold : 300;
+        depegThresholdBps = cfg.depegThresholdBps;
+
+        // Initialize mutable allocation state
+        earnBps = cfg.earnBps;
+        lpBps   = cfg.lpBps;
     }
 
     // ============ ERC4626 Override: NAV ============
@@ -246,8 +308,10 @@ contract MetaYieldVault is ERC4626, Ownable, ReentrancyGuard {
         super._withdraw(caller, receiver, owner, assets, shares);
     }
 
-    // ============ Autonomous: Harvest ============
+    // ============ Autonomous: Harvest (permissionless, with bounty) ============
 
+    /// @notice Harvest CAKE rewards, compound into strategy, pay bounty to caller
+    /// @dev Anyone can call. Caller receives HARVEST_BOUNTY_BPS of harvested USDT.
     function harvest() external nonReentrant {
         bytes memory farmParams = _encodeFarmAction(FARM_HARVEST, CAKE_WBNB_POOL, 0, address(this));
         IAdapter(farmAdapter).execute(address(this), farmParams);
@@ -258,15 +322,23 @@ contract MetaYieldVault is ERC4626, Ownable, ReentrancyGuard {
         uint256 usdtReceived = _swapToUsdt(CAKE, cakeBalance);
         if (usdtReceived == 0) revert("Swap produced no USDT");
 
+        // Pay bounty to caller before compounding
+        uint256 bounty = (usdtReceived * HARVEST_BOUNTY_BPS) / MAX_BPS;
+        if (bounty > 0) {
+            IERC20(USDT).safeTransfer(msg.sender, bounty);
+            totalBountiesPaid += bounty;
+            usdtReceived -= bounty;
+        }
+
         totalCakeHarvested += cakeBalance;
         _allocate(usdtReceived);
         _updateAprTracking(usdtReceived);
         _autoAdjustAllocation();
 
-        emit Harvested(cakeBalance, usdtReceived);
+        emit Harvested(cakeBalance, usdtReceived, msg.sender, bounty);
     }
 
-    // ============ Autonomous: Rebalance ============
+    // ============ Autonomous: Rebalance (permissionless) ============
 
     function rebalance() external nonReentrant {
         uint256 nav = totalAssets();
@@ -298,59 +370,6 @@ contract MetaYieldVault is ERC4626, Ownable, ReentrancyGuard {
         }
 
         emit Rebalanced(currentEarnBps, block.timestamp);
-    }
-
-    // ============ Owner: Configuration ============
-
-    function setStrategyParams(
-        uint256 _earnBps,
-        uint256 _lpBps,
-        uint256 _bufferBps
-    ) external onlyOwner {
-        require(_earnBps + _lpBps + _bufferBps == MAX_BPS, "Must sum to 10000");
-        earnBps   = _earnBps;
-        lpBps     = _lpBps;
-        bufferBps = _bufferBps;
-        emit StrategyParamsUpdated(_earnBps, _lpBps, _bufferBps);
-    }
-
-    function setHedgeConfig(address _perpRouter, uint256 _hedgeBps) external onlyOwner {
-        require(_hedgeBps <= 5_000, "Hedge cannot exceed 50%");
-        asterPerpRouter = _perpRouter;
-        hedgeBps        = _hedgeBps;
-        emit HedgeConfigUpdated(_perpRouter, _hedgeBps);
-    }
-
-    function setRebalanceDrift(uint256 _driftBps) external onlyOwner {
-        require(_driftBps >= 50 && _driftBps <= 2_000, "Drift must be 0.5%-20%");
-        rebalanceDriftBps = _driftBps;
-    }
-
-    function setMinHarvestCake(uint256 _minCake) external onlyOwner {
-        minHarvestCake = _minCake;
-    }
-
-    function setDynamicAlloc(
-        bool    enabled,
-        uint256 _minEarn,
-        uint256 _maxEarn
-    ) external onlyOwner {
-        require(_minEarn < _maxEarn, "Invalid bounds");
-        require(_maxEarn + bufferBps <= MAX_BPS, "Bounds overflow buffer");
-        dynamicAlloc = enabled;
-        minEarnBps   = _minEarn;
-        maxEarnBps   = _maxEarn;
-    }
-
-    function setRegimeThreshold(uint256 _thresholdBps) external onlyOwner {
-        require(_thresholdBps >= 50 && _thresholdBps <= 2_000, "Threshold: 0.5%-20%");
-        regimeVolatilityThreshold = _thresholdBps;
-    }
-
-    function setDepegThreshold(uint256 _thresholdBps) external onlyOwner {
-        require(_thresholdBps == 0 || (_thresholdBps >= 50 && _thresholdBps <= 1_000),
-            "Depeg threshold: 0 (off) or 0.5%-10%");
-        depegThresholdBps = _thresholdBps;
     }
 
     receive() external payable {}
@@ -398,9 +417,9 @@ contract MetaYieldVault is ERC4626, Ownable, ReentrancyGuard {
         uint256 bufferAmt  = (usdtAmount * bufferBps) / MAX_BPS;
         uint256 toAllocate = usdtAmount - bufferAmt;
 
-        (uint256 targetEarnBps, uint256 targetLpBps) = _computeTargetAlloc();
-        uint256 total   = targetEarnBps + targetLpBps;
-        uint256 earnAmt = total > 0 ? (toAllocate * targetEarnBps) / total : toAllocate;
+        (uint256 targetEarnBps_, uint256 targetLpBps_) = _computeTargetAlloc();
+        uint256 total   = targetEarnBps_ + targetLpBps_;
+        uint256 earnAmt = total > 0 ? (toAllocate * targetEarnBps_) / total : toAllocate;
         uint256 lpAmt   = toAllocate - earnAmt;
 
         if (earnAmt > 0) _allocateToEarn(earnAmt);
@@ -575,16 +594,21 @@ contract MetaYieldVault is ERC4626, Ownable, ReentrancyGuard {
         }
     }
 
-    // ============ Internal: Swap Helpers ============
+    // ============ Internal: Swap Helpers (with slippage protection) ============
 
     function _swapFromUsdt(address toToken, uint256 usdtAmount) internal returns (uint256) {
         if (usdtAmount == 0) return 0;
         address[] memory path = new address[](2);
         path[0] = USDT;
         path[1] = toToken;
+
+        // Get expected output for slippage calculation
+        uint256 expectedOut = _getAmountOut(usdtAmount, USDT, toToken);
+        uint256 minOut = (expectedOut * (MAX_BPS - SWAP_SLIPPAGE_BPS)) / MAX_BPS;
+
         IERC20(USDT).forceApprove(PANCAKE_ROUTER, usdtAmount);
         try IPancakeRouter02(PANCAKE_ROUTER).swapExactTokensForTokens(
-            usdtAmount, 0, path, address(this), block.timestamp + 300
+            usdtAmount, minOut, path, address(this), block.timestamp + 300
         ) returns (uint256[] memory amounts) {
             IERC20(USDT).forceApprove(PANCAKE_ROUTER, 0);
             return amounts[amounts.length - 1];
@@ -599,9 +623,14 @@ contract MetaYieldVault is ERC4626, Ownable, ReentrancyGuard {
         address[] memory path = new address[](2);
         path[0] = fromToken;
         path[1] = USDT;
+
+        // Get expected output for slippage calculation
+        uint256 expectedOut = _getAmountOut(amount, fromToken, USDT);
+        uint256 minOut = (expectedOut * (MAX_BPS - SWAP_SLIPPAGE_BPS)) / MAX_BPS;
+
         IERC20(fromToken).forceApprove(PANCAKE_ROUTER, amount);
         try IPancakeRouter02(PANCAKE_ROUTER).swapExactTokensForTokens(
-            amount, 0, path, address(this), block.timestamp + 300
+            amount, minOut, path, address(this), block.timestamp + 300
         ) returns (uint256[] memory amounts) {
             IERC20(fromToken).forceApprove(PANCAKE_ROUTER, 0);
             return amounts[amounts.length - 1];

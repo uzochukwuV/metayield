@@ -22,8 +22,13 @@ contract StrategyRouter is ReentrancyGuard {
     address public constant USDT = 0x55d398326f99059fF775485246999027B3197955;
     address public constant USDF = 0x5A110fC00474038f6c02E89C707D638602EA44B5;
     address public constant BUSD = 0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56;
+    address public constant CAKE = 0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82;
+    address public constant WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
     // Use BUSD/USDT as proxy for stablecoin volatility detection (both are pegged to USD)
     address public constant USDF_USDT_PAIR = 0x7EFaEf62fDdCCa950418312c6C91Aef321375A00; // BUSD/USDT PancakeSwap V2
+    address public constant CAKE_WBNB_PAIR = 0x0eD7e52944161450477ee417DE9Cd3a859b14fD0;
+    address public constant MASTERCHEF_V2 = 0xa5f8C5Dbd5F286960b9d90548680aE5ebFf07652;
+    address public constant PANCAKE_ROUTER = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
 
     uint256 public constant BUFFER_BPS = 1000; // Always keep 10% buffer
     uint256 public constant DRIFT_THRESHOLD_BPS = 200; // 2% drift triggers rebalance
@@ -131,37 +136,35 @@ contract StrategyRouter is ReentrancyGuard {
         // Deploy to AsterDEX Earn (two-step: USDT → USDF → asUSDF)
         // Following MetaYieldVault pattern: don't revert on adapter failures
         if (earnAmount > 0) {
-            try IERC20(USDT).transfer(address(earnAdapter), earnAmount) returns (bool) {
-                bytes memory usdfParams = abi.encode(
-                    uint8(0),      // ActionType.DEPOSIT
-                    uint8(0),      // Asset.USDF (USDT → USDF)
-                    earnAmount,    // amount
-                    uint256(0),    // mintRatio
-                    uint256(0),    // minReceived
-                    uint256(0),    // requestId
-                    address(this)  // recipient
-                );
+            IERC20(USDT).safeTransfer(address(earnAdapter), earnAmount);
+            bytes memory usdfParams = abi.encode(
+                uint8(0),      // ActionType.DEPOSIT
+                uint8(0),      // Asset.USDF (USDT → USDF)
+                earnAmount,    // amount
+                uint256(0),    // mintRatio
+                uint256(0),    // minReceived
+                uint256(0),    // requestId
+                address(this)  // recipient
+            );
 
-                try earnAdapter.execute(address(this), usdfParams) returns (bool step1Ok, bytes memory) {
-                    if (step1Ok) {
-                        // Step 2: USDF → asUSDF
-                        uint256 usdfBalance = IERC20(USDF).balanceOf(address(this));
-                        if (usdfBalance > 0) {
-                            try IERC20(USDF).transfer(address(earnAdapter), usdfBalance) returns (bool) {
-                                bytes memory asUsdfParams = abi.encode(
-                                    uint8(0),      // ActionType.DEPOSIT
-                                    uint8(2),      // Asset.ASUSDF (USDF → asUSDF)
-                                    usdfBalance,   // amount
-                                    uint256(0),    // mintRatio
-                                    uint256(0),    // minReceived
-                                    uint256(0),    // requestId
-                                    address(this)  // recipient
-                                );
-                                earnAdapter.execute(address(this), asUsdfParams);
-                            } catch {}
-                        }
+            try earnAdapter.execute(address(this), usdfParams) returns (bool step1Ok, bytes memory) {
+                if (step1Ok) {
+                    // Step 2: USDF → asUSDF
+                    uint256 usdfBalance = IERC20(USDF).balanceOf(address(this));
+                    if (usdfBalance > 0) {
+                        IERC20(USDF).safeTransfer(address(earnAdapter), usdfBalance);
+                        bytes memory asUsdfParams = abi.encode(
+                            uint8(0),      // ActionType.DEPOSIT
+                            uint8(2),      // Asset.ASUSDF (USDF → asUSDF)
+                            usdfBalance,   // amount
+                            uint256(0),    // mintRatio
+                            uint256(0),    // minReceived
+                            uint256(0),    // requestId
+                            address(this)  // recipient
+                        );
+                        try earnAdapter.execute(address(this), asUsdfParams) {} catch {}
                     }
-                } catch {}
+                }
             } catch {}
         }
 
@@ -283,14 +286,21 @@ contract StrategyRouter is ReentrancyGuard {
     /// @notice Get value of Earn position in USDT
     function _getEarnValue() internal view returns (uint256) {
         address ASUSDF = 0x917AF46B3C3c6e1Bb7286B9F59637Fb7C65851Fb;
+        address ASUSDF_MINTER = 0xdB57a53C428a9faFcbFefFB6dd80d0f427543695;
         uint256 asUsdfBalance = IERC20(ASUSDF).balanceOf(address(this));
         if (asUsdfBalance == 0) return 0;
 
-        // Get asUSDF → USDF exchange rate from AsterEarn
-        // Rate is typically > 1.0 as yield accrues
-        // Simplified: assume 1:1 for now (conservative estimate)
-        // In production, query the actual exchange rate from AsterEarn contract
-        uint256 usdfValue = asUsdfBalance; // 1:1 approximation
+        // Query actual asUSDF → USDF exchange rate from AsterEarn
+        uint256 usdfValue;
+        (bool rateOk, bytes memory rateData) = ASUSDF_MINTER.staticcall(
+            abi.encodeWithSignature("exchangePrice()")
+        );
+        if (rateOk && rateData.length >= 32) {
+            uint256 exchangeRate = abi.decode(rateData, (uint256));
+            usdfValue = (asUsdfBalance * exchangeRate) / 1e18;
+        } else {
+            usdfValue = asUsdfBalance; // fallback to 1:1
+        }
 
         // Convert USDF to USDT value using AMM price
         uint256 usdfPrice = VolatilityLib.getSpotPrice(USDF_USDT_PAIR);
@@ -299,31 +309,80 @@ contract StrategyRouter is ReentrancyGuard {
 
     /// @notice Get value of LP position in USDT
     function _getLPValue() internal view returns (uint256) {
-        address CAKE_WBNB_PAIR = 0x0eD7e52944161450477ee417DE9Cd3a859b14fD0;
-        address MASTERCHEF_V2 = 0xa5f8C5Dbd5F286960b9d90548680aE5ebFf07652;
+        uint256 lpBalance = _getTotalLPBalance();
+        if (lpBalance == 0) return 0;
 
-        // Get LP tokens in wallet
-        uint256 lpBalance = IERC20(CAKE_WBNB_PAIR).balanceOf(address(this));
+        uint256 lpSupply = IERC20(CAKE_WBNB_PAIR).totalSupply();
+        if (lpSupply == 0) return 0;
 
-        // Get staked LP in MasterChef (pool 2 = CAKE/WBNB)
+        // Get our share of each token from LP reserves
+        (uint256 ourCake, uint256 ourWbnb) = _getLPTokenShares(lpBalance, lpSupply);
+
+        // Convert both sides to USDT
+        return _getAmountOutViaRouter(PANCAKE_ROUTER, ourCake, CAKE, USDT)
+             + _getAmountOutViaRouter(PANCAKE_ROUTER, ourWbnb, WBNB, USDT);
+    }
+
+    /// @notice Get total LP balance (wallet + staked in MasterChef)
+    function _getTotalLPBalance() internal view returns (uint256 lpBalance) {
+        lpBalance = IERC20(CAKE_WBNB_PAIR).balanceOf(address(this));
+
         (bool success, bytes memory data) = MASTERCHEF_V2.staticcall(
             abi.encodeWithSignature("userInfo(uint256,address)", uint256(2), address(this))
         );
         if (success && data.length >= 32) {
-            uint256 stakedLP = abi.decode(data, (uint256));
-            lpBalance += stakedLP;
+            lpBalance += abi.decode(data, (uint256));
         }
+    }
 
-        if (lpBalance == 0) return 0;
+    /// @notice Compute our share of CAKE and WBNB from LP position
+    function _getLPTokenShares(uint256 lpBalance, uint256 lpSupply)
+        internal view returns (uint256 ourCake, uint256 ourWbnb)
+    {
+        (bool resOk, bytes memory resData) = CAKE_WBNB_PAIR.staticcall(
+            abi.encodeWithSignature("getReserves()")
+        );
+        if (!resOk || resData.length < 64) return (0, 0);
 
-        // Get total LP supply and reserves
-        uint256 lpSupply = IERC20(CAKE_WBNB_PAIR).totalSupply();
-        if (lpSupply == 0) return 0;
+        (uint112 reserve0, uint112 reserve1, ) = abi.decode(resData, (uint112, uint112, uint32));
 
-        // Get reserves (simplified: approximate as 2x USDT value of one side)
-        // In production, get actual reserves and convert both sides to USDT
-        // For now, return 0 to avoid errors
-        return 0; // Simplified for initial implementation
+        (bool t0Ok, bytes memory t0Data) = CAKE_WBNB_PAIR.staticcall(
+            abi.encodeWithSignature("token0()")
+        );
+        if (!t0Ok || t0Data.length < 32) return (0, 0);
+        address token0 = abi.decode(t0Data, (address));
+
+        if (token0 == CAKE) {
+            ourCake = (uint256(reserve0) * lpBalance) / lpSupply;
+            ourWbnb = (uint256(reserve1) * lpBalance) / lpSupply;
+        } else {
+            ourCake = (uint256(reserve1) * lpBalance) / lpSupply;
+            ourWbnb = (uint256(reserve0) * lpBalance) / lpSupply;
+        }
+    }
+
+    /// @notice Get quote from PancakeSwap router
+    function _getAmountOutViaRouter(
+        address routerAddr,
+        uint256 amountIn,
+        address fromToken,
+        address toToken
+    ) internal view returns (uint256) {
+        if (amountIn == 0) return 0;
+
+        // Encode the path [fromToken, toToken]
+        // We call getAmountsOut(uint256, address[]) view
+        address[] memory path = new address[](2);
+        path[0] = fromToken;
+        path[1] = toToken;
+
+        (bool ok, bytes memory result) = routerAddr.staticcall(
+            abi.encodeWithSignature("getAmountsOut(uint256,address[])", amountIn, path)
+        );
+        if (!ok || result.length < 64) return 0;
+
+        uint256[] memory amounts = abi.decode(result, (uint256[]));
+        return amounts[amounts.length - 1];
     }
 
     /// @notice Current on-chain risk score (0-100)

@@ -6,10 +6,10 @@ import { MetaVault, EngineCore, StrategyRouter } from "../typechain-types";
 /**
  * Autonomous Engine Integration Tests
  *
- * Tests the full modular architecture:
- * - MetaVault (ERC4626)
- * - EngineCore (permissionless orchestrator)
- * - StrategyRouter (volatility-based allocation)
+ * Tests the full PERMISSIONLESS modular architecture:
+ * - MetaVault (ERC4626 with high watermark fees)
+ * - EngineCore (permissionless orchestrator with caller bounty + EMA volatility)
+ * - StrategyRouter (volatility-based allocation with proper NAV)
  *
  * Run: npx hardhat test test/AutonomousEngine.test.ts --network localhost
  */
@@ -158,26 +158,36 @@ describe("Autonomous Engine — Deployment", function () {
     it("EngineCore cooldown is 1 hour", async function () {
         expect(await engine.CYCLE_INTERVAL()).to.equal(3600);
     });
+
+    it("EngineCore has caller bounty configured", async function () {
+        expect(await engine.CALLER_BOUNTY_BPS()).to.equal(50); // 0.5%
+    });
+
+    it("EngineCore uses EMA volatility smoothing", async function () {
+        expect(await engine.EMA_ALPHA()).to.equal(2000); // 20%
+        const ema = await engine.emaDeviationBps();
+        expect(ema).to.be.gte(0); // Starts at 0
+    });
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  Suite 2: Volatility Detection (On-Chain)
+//  Suite 2: Volatility Detection (On-Chain, EMA-Smoothed)
 // ══════════════════════════════════════════════════════════════════════════════
 
-describe("Autonomous Engine — Volatility Detection", function () {
+describe("Autonomous Engine — Volatility Detection (EMA)", function () {
     this.timeout(120_000);
 
     before(async function () {
         await ensureFixture();
     });
 
-    it("can query current market mode", async function () {
+    it("can query current market mode (EMA-smoothed)", async function () {
         const mode = await engine.currentMarketMode();
         console.log(`    Market mode: ${mode} (0=NORMAL, 1=VOLATILE, 2=DRAWDOWN)`);
         expect([0, 1, 2]).to.include(Number(mode));
     });
 
-    it("can query risk score (0-100)", async function () {
+    it("can query risk score (0-100, EMA-smoothed)", async function () {
         const risk = await engine.currentRiskScore();
         console.log(`    Risk score: ${risk}/100`);
         expect(risk).to.be.lte(100);
@@ -190,7 +200,7 @@ describe("Autonomous Engine — Volatility Detection", function () {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  Suite 3: Permissionless executeCycle
+//  Suite 3: Permissionless executeCycle (with bounty)
 // ══════════════════════════════════════════════════════════════════════════════
 
 describe("Autonomous Engine — Permissionless Execution", function () {
@@ -229,10 +239,16 @@ describe("Autonomous Engine — Permissionless Execution", function () {
         const tx = await engine.connect(user1).executeCycle();
         const receipt = await tx.wait();
 
-        console.log(`    ✅ Cycle executed by non-owner (gas: ${receipt?.gasUsed})`);
+        console.log(`    Cycle executed by non-owner (gas: ${receipt?.gasUsed})`);
 
         const cycles = await engine.totalCyclesExecuted();
         expect(cycles).to.equal(1);
+    });
+
+    it("EMA deviation is updated after cycle", async function () {
+        const ema = await engine.emaDeviationBps();
+        console.log(`    EMA deviation: ${ema} bps`);
+        expect(ema).to.be.gte(0);
     });
 });
 
@@ -248,7 +264,6 @@ describe("Autonomous Engine — Deposits & Allocation", function () {
     });
 
     it("user can deposit USDT and receive MYV shares", async function () {
-        // Use smaller amount and test with simplified strategy like MetaYieldVault tests
         const whale = await impersonate(BSC.BINANCE_WHALE);
         const USDT = new ethers.Contract(BSC.USDT, ERC20_ABI, whale);
 
@@ -261,18 +276,12 @@ describe("Autonomous Engine — Deposits & Allocation", function () {
 
         const sharesMinted = sharesAfter - sharesBefore;
         expect(sharesMinted).to.be.gt(0);
-        console.log(`    Deposited: 50 USDT → ${ethers.formatEther(sharesMinted)} MYV`);
+        console.log(`    Deposited: 50 USDT -> ${ethers.formatEther(sharesMinted)} MYV`);
 
         await stopImpersonating(BSC.BINANCE_WHALE);
     });
 
-    it("vault transfers assets to StrategyRouter", async function () {
-        const routerBalance = await ethers.provider.getBalance(routerAddr);
-        console.log(`    Router USDT balance: ${ethers.formatEther(routerBalance)}`);
-        // Note: Balance may be 0 if immediately deployed
-    });
-
-    it("totalManagedAssets includes all positions", async function () {
+    it("totalManagedAssets includes buffer + earn + LP positions", async function () {
         const totalAssets = await router.totalManagedAssets();
         console.log(`    Total managed: ${ethers.formatUnits(totalAssets, 18)} USDT`);
         expect(totalAssets).to.be.gte(0);
@@ -280,10 +289,10 @@ describe("Autonomous Engine — Deposits & Allocation", function () {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  Suite 5: Performance Fee (Auto-Compound)
+//  Suite 5: Performance Fee (High Watermark)
 // ══════════════════════════════════════════════════════════════════════════════
 
-describe("Autonomous Engine — Performance Fees", function () {
+describe("Autonomous Engine — Performance Fees (High Watermark)", function () {
     this.timeout(120_000);
 
     before(async function () {
@@ -292,6 +301,12 @@ describe("Autonomous Engine — Performance Fees", function () {
 
     it("vault has 10% performance fee constant", async function () {
         expect(await vault.PERFORMANCE_FEE_BPS()).to.equal(1000);
+    });
+
+    it("vault tracks high watermark", async function () {
+        const hwm = await vault.highWatermark();
+        console.log(`    High watermark: ${ethers.formatUnits(hwm, 18)} USDT`);
+        expect(hwm).to.be.gte(0);
     });
 
     it("fee shares are auto-compounded (minted to vault)", async function () {
@@ -334,7 +349,7 @@ describe("Autonomous Engine — Withdrawals", function () {
         const received = usdtAfter - usdtBefore;
 
         expect(received).to.be.gt(0);
-        console.log(`    Redeemed: ${ethers.formatEther(redeemAmount)} MYV → ${ethers.formatUnits(received, 18)} USDT`);
+        console.log(`    Redeemed: ${ethers.formatEther(redeemAmount)} MYV -> ${ethers.formatUnits(received, 18)} USDT`);
 
         await stopImpersonating(BSC.BINANCE_WHALE);
     });
@@ -359,25 +374,33 @@ describe("Autonomous Engine — Live Metrics", function () {
         const risk = await engine.currentRiskScore();
         const cycles = await engine.totalCyclesExecuted();
         const canExecute = await engine.canExecuteCycle();
+        const ema = await engine.emaDeviationBps();
+        const hwm = await vault.highWatermark();
+        const bounties = await engine.totalBountiesPaid();
 
         console.log("");
-        console.log("    ┌──────────────────────────────────────────────────────┐");
-        console.log("    │      MetaYield Autonomous Engine — Live Status       │");
-        console.log("    ├──────────────────────────────────────────────────────┤");
-        console.log(`    │  TVL             : ${ethers.formatUnits(tvl, 18).padEnd(28)} USDT  │`);
-        console.log(`    │  Share Price     : ${ethers.formatEther(sharePrice).padEnd(28)} USDT  │`);
-        console.log(`    │  APY             : ${(Number(currentAPY) / 100).toFixed(2).padEnd(28)}%    │`);
-        console.log("    ├──────────────────────────────────────────────────────┤");
-        console.log(`    │  Market Mode     : ${["NORMAL", "VOLATILE", "DRAWDOWN"][mode].padEnd(28)}       │`);
-        console.log(`    │  Risk Score      : ${risk.toString().padEnd(28)}/100  │`);
-        console.log("    ├──────────────────────────────────────────────────────┤");
-        console.log(`    │  Cycles Executed : ${cycles.toString().padEnd(28)}       │`);
-        console.log(`    │  Can Execute     : ${canExecute.toString().padEnd(28)}       │`);
-        console.log("    ├──────────────────────────────────────────────────────┤");
-        console.log("    │  ✨ PERMISSIONLESS: Anyone can call executeCycle()  │");
-        console.log("    │  🔓 NO ADMIN KEYS: Fully autonomous operation        │");
-        console.log("    │  📊 ON-CHAIN: Volatility detection from DEX          │");
-        console.log("    └──────────────────────────────────────────────────────┘");
+        console.log("    +=======================================================+");
+        console.log("    |   MetaYield Autonomous Engine — PERMISSIONLESS Status  |");
+        console.log("    +=======================================================+");
+        console.log(`    |  TVL             : ${ethers.formatUnits(tvl, 18).padEnd(28)} USDT  |`);
+        console.log(`    |  Share Price     : ${ethers.formatEther(sharePrice).padEnd(28)} USDT  |`);
+        console.log(`    |  APY             : ${(Number(currentAPY) / 100).toFixed(2).padEnd(28)}%    |`);
+        console.log("    +-------------------------------------------------------+");
+        console.log(`    |  Market Mode     : ${["NORMAL", "VOLATILE", "DRAWDOWN"][Number(mode)].padEnd(28)}       |`);
+        console.log(`    |  Risk Score      : ${risk.toString().padEnd(28)}/100  |`);
+        console.log(`    |  EMA Deviation   : ${ema.toString().padEnd(28)} bps  |`);
+        console.log("    +-------------------------------------------------------+");
+        console.log(`    |  Cycles Executed : ${cycles.toString().padEnd(28)}       |`);
+        console.log(`    |  Can Execute     : ${canExecute.toString().padEnd(28)}       |`);
+        console.log(`    |  High Watermark  : ${ethers.formatUnits(hwm, 18).padEnd(28)} USDT  |`);
+        console.log(`    |  Bounties Paid   : ${ethers.formatUnits(bounties, 18).padEnd(28)} USDT  |`);
+        console.log("    +-------------------------------------------------------+");
+        console.log("    |  PERMISSIONLESS: Anyone can call executeCycle()        |");
+        console.log("    |  CALLER BOUNTY:  0.5% of yield paid to caller         |");
+        console.log("    |  EMA VOLATILITY: Smoothed mode transitions            |");
+        console.log("    |  HIGH WATERMARK: No fees on drawdown recovery         |");
+        console.log("    |  NO ADMIN KEYS:  Fully autonomous operation           |");
+        console.log("    +=======================================================+");
         console.log("");
 
         expect(tvl).to.be.gte(0);

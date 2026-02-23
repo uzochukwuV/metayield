@@ -26,23 +26,29 @@ import type {
 export interface EngineCoreInterface extends Interface {
   getFunction(
     nameOrSignature:
+      | "CALLER_BOUNTY_BPS"
       | "CYCLE_INTERVAL"
+      | "EMA_ALPHA"
       | "USDF_USDT_PAIR"
+      | "USDT"
       | "canExecuteCycle"
       | "currentMarketMode"
       | "currentRiskScore"
+      | "emaDeviationBps"
       | "executeCycle"
       | "lastCycleTime"
       | "lastMode"
       | "lastPriceSnapshot"
       | "strategyRouter"
       | "timeUntilNextCycle"
+      | "totalBountiesPaid"
       | "totalCyclesExecuted"
       | "vault"
   ): FunctionFragment;
 
   getEvent(
     nameOrSignatureOrTopic:
+      | "CallerBountyPaid"
       | "CapitalDeployed"
       | "CycleCooldown"
       | "CycleExecuted"
@@ -50,13 +56,19 @@ export interface EngineCoreInterface extends Interface {
   ): EventFragment;
 
   encodeFunctionData(
+    functionFragment: "CALLER_BOUNTY_BPS",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "CYCLE_INTERVAL",
     values?: undefined
   ): string;
+  encodeFunctionData(functionFragment: "EMA_ALPHA", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "USDF_USDT_PAIR",
     values?: undefined
   ): string;
+  encodeFunctionData(functionFragment: "USDT", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "canExecuteCycle",
     values?: undefined
@@ -67,6 +79,10 @@ export interface EngineCoreInterface extends Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "currentRiskScore",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "emaDeviationBps",
     values?: undefined
   ): string;
   encodeFunctionData(
@@ -91,19 +107,29 @@ export interface EngineCoreInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "totalBountiesPaid",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "totalCyclesExecuted",
     values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "vault", values?: undefined): string;
 
   decodeFunctionResult(
+    functionFragment: "CALLER_BOUNTY_BPS",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "CYCLE_INTERVAL",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(functionFragment: "EMA_ALPHA", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "USDF_USDT_PAIR",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(functionFragment: "USDT", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "canExecuteCycle",
     data: BytesLike
@@ -114,6 +140,10 @@ export interface EngineCoreInterface extends Interface {
   ): Result;
   decodeFunctionResult(
     functionFragment: "currentRiskScore",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "emaDeviationBps",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -138,10 +168,27 @@ export interface EngineCoreInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "totalBountiesPaid",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "totalCyclesExecuted",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "vault", data: BytesLike): Result;
+}
+
+export namespace CallerBountyPaidEvent {
+  export type InputTuple = [caller: AddressLike, amount: BigNumberish];
+  export type OutputTuple = [caller: string, amount: bigint];
+  export interface OutputObject {
+    caller: string;
+    amount: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
 }
 
 export namespace CapitalDeployedEvent {
@@ -252,15 +299,23 @@ export interface EngineCore extends BaseContract {
     event?: TCEvent
   ): Promise<this>;
 
+  CALLER_BOUNTY_BPS: TypedContractMethod<[], [bigint], "view">;
+
   CYCLE_INTERVAL: TypedContractMethod<[], [bigint], "view">;
 
+  EMA_ALPHA: TypedContractMethod<[], [bigint], "view">;
+
   USDF_USDT_PAIR: TypedContractMethod<[], [string], "view">;
+
+  USDT: TypedContractMethod<[], [string], "view">;
 
   canExecuteCycle: TypedContractMethod<[], [boolean], "view">;
 
   currentMarketMode: TypedContractMethod<[], [bigint], "view">;
 
   currentRiskScore: TypedContractMethod<[], [bigint], "view">;
+
+  emaDeviationBps: TypedContractMethod<[], [bigint], "view">;
 
   executeCycle: TypedContractMethod<[], [void], "nonpayable">;
 
@@ -274,6 +329,8 @@ export interface EngineCore extends BaseContract {
 
   timeUntilNextCycle: TypedContractMethod<[], [bigint], "view">;
 
+  totalBountiesPaid: TypedContractMethod<[], [bigint], "view">;
+
   totalCyclesExecuted: TypedContractMethod<[], [bigint], "view">;
 
   vault: TypedContractMethod<[], [string], "view">;
@@ -283,10 +340,19 @@ export interface EngineCore extends BaseContract {
   ): T;
 
   getFunction(
+    nameOrSignature: "CALLER_BOUNTY_BPS"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "CYCLE_INTERVAL"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
+    nameOrSignature: "EMA_ALPHA"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "USDF_USDT_PAIR"
+  ): TypedContractMethod<[], [string], "view">;
+  getFunction(
+    nameOrSignature: "USDT"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "canExecuteCycle"
@@ -296,6 +362,9 @@ export interface EngineCore extends BaseContract {
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "currentRiskScore"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "emaDeviationBps"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "executeCycle"
@@ -316,12 +385,22 @@ export interface EngineCore extends BaseContract {
     nameOrSignature: "timeUntilNextCycle"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
+    nameOrSignature: "totalBountiesPaid"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "totalCyclesExecuted"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "vault"
   ): TypedContractMethod<[], [string], "view">;
 
+  getEvent(
+    key: "CallerBountyPaid"
+  ): TypedContractEvent<
+    CallerBountyPaidEvent.InputTuple,
+    CallerBountyPaidEvent.OutputTuple,
+    CallerBountyPaidEvent.OutputObject
+  >;
   getEvent(
     key: "CapitalDeployed"
   ): TypedContractEvent<
@@ -352,6 +431,17 @@ export interface EngineCore extends BaseContract {
   >;
 
   filters: {
+    "CallerBountyPaid(address,uint256)": TypedContractEvent<
+      CallerBountyPaidEvent.InputTuple,
+      CallerBountyPaidEvent.OutputTuple,
+      CallerBountyPaidEvent.OutputObject
+    >;
+    CallerBountyPaid: TypedContractEvent<
+      CallerBountyPaidEvent.InputTuple,
+      CallerBountyPaidEvent.OutputTuple,
+      CallerBountyPaidEvent.OutputObject
+    >;
+
     "CapitalDeployed(uint256)": TypedContractEvent<
       CapitalDeployedEvent.InputTuple,
       CapitalDeployedEvent.OutputTuple,

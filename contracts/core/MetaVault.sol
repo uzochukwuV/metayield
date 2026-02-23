@@ -11,6 +11,8 @@ import "../libraries/VaultMath.sol";
 /// @title MetaVault
 /// @notice Autonomous ERC4626 yield vault for BSC. Issues MYV (MetaYield Vault) shares.
 /// @dev No owner. No admin keys. No pause. Fully immutable.
+///      Performance fees use a high watermark to prevent charging fees on
+///      recovery after drawdowns — only genuine new profits are taxed.
 ///      Built for the BNB Chain Good Vibes Only Hackathon.
 contract MetaVault is ERC4626, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -36,6 +38,11 @@ contract MetaVault is ERC4626, ReentrancyGuard {
     /// @notice Total assets at last harvest (for profit calculation)
     uint256 public lastHarvestAssets;
 
+    /// @notice High watermark — the highest total assets ever recorded per share
+    /// @dev Fees are only charged when total assets exceed this watermark.
+    ///      Prevents double-charging fees on recovery after drawdowns.
+    uint256 public highWatermark;
+
     /// @notice Total yield harvested lifetime
     uint256 public totalYieldHarvested;
 
@@ -49,6 +56,7 @@ contract MetaVault is ERC4626, ReentrancyGuard {
     event FeeCompounded(uint256 profit, uint256 feeShares, uint256 timestamp);
     event APYUpdated(uint256 apyBps, uint256 timestamp);
     event HarvestRecorded(uint256 totalAssets, uint256 timestamp);
+    event HighWatermarkUpdated(uint256 newWatermark, uint256 timestamp);
 
     // ─── Constructor ─────────────────────────────────────────────────────────
     constructor(
@@ -146,14 +154,18 @@ contract MetaVault is ERC4626, ReentrancyGuard {
     // ─── Harvest Recording ───────────────────────────────────────────────────
 
     /// @notice Record harvest results from EngineCore
-    /// @dev Only callable by EngineCore after a yield cycle
+    /// @dev Only callable by EngineCore after a yield cycle.
+    ///      Uses high watermark: fees only charged on NEW all-time-high profits.
     /// @param newTotalAssets Updated total assets after harvest
     function recordHarvest(uint256 newTotalAssets) external {
         require(msg.sender == engineCore, "MetaVault: only engine");
 
+        // Only charge fees on profit above the high watermark
         uint256 profit = 0;
-        if (newTotalAssets > lastHarvestAssets) {
-            profit = newTotalAssets - lastHarvestAssets;
+        if (newTotalAssets > highWatermark) {
+            profit = newTotalAssets - highWatermark;
+            highWatermark = newTotalAssets;
+            emit HighWatermarkUpdated(newTotalAssets, block.timestamp);
         }
 
         if (profit > 0) {
@@ -161,7 +173,7 @@ contract MetaVault is ERC4626, ReentrancyGuard {
             uint256 feeShares = VaultMath.calcPerformanceFeeShares(
                 profit,
                 PERFORMANCE_FEE_BPS,
-                lastHarvestAssets,
+                lastHarvestAssets > 0 ? lastHarvestAssets : newTotalAssets,
                 supply
             );
 
@@ -173,7 +185,7 @@ contract MetaVault is ERC4626, ReentrancyGuard {
 
             // Update APY
             uint256 period = block.timestamp - lastHarvestTime;
-            if (period > 0) {
+            if (period > 0 && lastHarvestAssets > 0) {
                 currentAPYBps = VaultMath.computeAPY(profit, lastHarvestAssets, period);
                 emit APYUpdated(currentAPYBps, block.timestamp);
             }
