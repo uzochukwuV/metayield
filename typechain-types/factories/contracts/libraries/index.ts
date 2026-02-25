@@ -3,3 +3,4 @@
 /* eslint-disable */
 export * as volatilityLibSol from "./VolatilityLib.sol";
 export { VaultMath__factory } from "./VaultMath__factory";
+export { YieldOracle__factory } from "./YieldOracle__factory";

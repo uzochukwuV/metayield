@@ -3,6 +3,8 @@
 /* eslint-disable */
 import type * as asterDexEarnAdapterSol from "./AsterDEXEarnAdapter.sol";
 export type { asterDexEarnAdapterSol };
+import type * as asterHedgeAdapterSol from "./AsterHedgeAdapter.sol";
+export type { asterHedgeAdapterSol };
 import type * as pancakeSwapFarmAdapterSol from "./PancakeSwapFarmAdapter.sol";
 export type { pancakeSwapFarmAdapterSol };
 import type * as pancakeSwapV2LpAdapterSol from "./PancakeSwapV2LPAdapter.sol";

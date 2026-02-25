@@ -82,6 +82,26 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.ISimpleEarn__factory>;
     getContractFactory(
+      name: "AsterHedgeAdapter",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.AsterHedgeAdapter__factory>;
+    getContractFactory(
+      name: "IAsBnbMinter",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IAsBnbMinter__factory>;
+    getContractFactory(
+      name: "IListaStakeManager",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IListaStakeManager__factory>;
+    getContractFactory(
+      name: "IPancakeRouter",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IPancakeRouter__factory>;
+    getContractFactory(
+      name: "IYieldProxy",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IYieldProxy__factory>;
+    getContractFactory(
       name: "IMasterChefV2",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.IMasterChefV2__factory>;
@@ -157,6 +177,10 @@ declare module "hardhat/types/runtime" {
       name: "VolatilityLib",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.VolatilityLib__factory>;
+    getContractFactory(
+      name: "YieldOracle",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.YieldOracle__factory>;
 
     getContractAt(
       name: "Ownable",
@@ -243,6 +267,31 @@ declare module "hardhat/types/runtime" {
       address: string | ethers.Addressable,
       signer?: ethers.Signer
     ): Promise<Contracts.ISimpleEarn>;
+    getContractAt(
+      name: "AsterHedgeAdapter",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.AsterHedgeAdapter>;
+    getContractAt(
+      name: "IAsBnbMinter",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IAsBnbMinter>;
+    getContractAt(
+      name: "IListaStakeManager",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IListaStakeManager>;
+    getContractAt(
+      name: "IPancakeRouter",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IPancakeRouter>;
+    getContractAt(
+      name: "IYieldProxy",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IYieldProxy>;
     getContractAt(
       name: "IMasterChefV2",
       address: string | ethers.Addressable,
@@ -338,6 +387,11 @@ declare module "hardhat/types/runtime" {
       address: string | ethers.Addressable,
       signer?: ethers.Signer
     ): Promise<Contracts.VolatilityLib>;
+    getContractAt(
+      name: "YieldOracle",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.YieldOracle>;
 
     deployContract(
       name: "Ownable",
@@ -407,6 +461,26 @@ declare module "hardhat/types/runtime" {
       name: "ISimpleEarn",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.ISimpleEarn>;
+    deployContract(
+      name: "AsterHedgeAdapter",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.AsterHedgeAdapter>;
+    deployContract(
+      name: "IAsBnbMinter",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IAsBnbMinter>;
+    deployContract(
+      name: "IListaStakeManager",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IListaStakeManager>;
+    deployContract(
+      name: "IPancakeRouter",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IPancakeRouter>;
+    deployContract(
+      name: "IYieldProxy",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IYieldProxy>;
     deployContract(
       name: "IMasterChefV2",
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -483,6 +557,10 @@ declare module "hardhat/types/runtime" {
       name: "VolatilityLib",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.VolatilityLib>;
+    deployContract(
+      name: "YieldOracle",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.YieldOracle>;
 
     deployContract(
       name: "Ownable",
@@ -569,6 +647,31 @@ declare module "hardhat/types/runtime" {
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.ISimpleEarn>;
+    deployContract(
+      name: "AsterHedgeAdapter",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.AsterHedgeAdapter>;
+    deployContract(
+      name: "IAsBnbMinter",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IAsBnbMinter>;
+    deployContract(
+      name: "IListaStakeManager",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IListaStakeManager>;
+    deployContract(
+      name: "IPancakeRouter",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IPancakeRouter>;
+    deployContract(
+      name: "IYieldProxy",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IYieldProxy>;
     deployContract(
       name: "IMasterChefV2",
       args: any[],
@@ -664,6 +767,11 @@ declare module "hardhat/types/runtime" {
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.VolatilityLib>;
+    deployContract(
+      name: "YieldOracle",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.YieldOracle>;
 
     // default types
     getContractFactory(

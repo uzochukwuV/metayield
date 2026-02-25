@@ -6,14 +6,19 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "../libraries/VaultMath.sol";
 import "../libraries/VolatilityLib.sol";
+import "../libraries/YieldOracle.sol";
 import "../adapters/AsterDEXEarnAdapter.sol";
+import "../adapters/AsterHedgeAdapter.sol";
 import "../adapters/PancakeSwapV2LPAdapter.sol";
 import "../adapters/PancakeSwapFarmAdapter.sol";
 
 /// @title StrategyRouter
-/// @notice Routes capital between AsterDEX Earn and PancakeSwap LP based on on-chain volatility
+/// @notice Routes capital between AsterDEX Earn, asBNB Hedge, and PancakeSwap LP
 /// @dev No admin keys. Callable only by EngineCore (immutable reference).
-///      Allocation is fully deterministic based on USDF/USDT price deviation.
+///      Features:
+///        1. Yield Chasing: Monitors USDT/USDF/BUSD APYs, routes to highest-yielding
+///        2. Volatility Hedging: Increases asBNB allocation when volatility spikes
+///        3. Dynamic Allocation: Adjusts based on on-chain market conditions
 contract StrategyRouter is ReentrancyGuard {
     using SafeERC20 for IERC20;
     using VolatilityLib for uint256;
@@ -36,6 +41,7 @@ contract StrategyRouter is ReentrancyGuard {
     // ─── Immutables ──────────────────────────────────────────────────────────
     address public immutable engineCore;
     AsterDEXEarnAdapter public immutable earnAdapter;
+    AsterHedgeAdapter public immutable hedgeAdapter;
     PancakeSwapV2LPAdapter public immutable lpAdapter;
     PancakeSwapFarmAdapter public immutable farmAdapter;
 
@@ -44,42 +50,60 @@ contract StrategyRouter is ReentrancyGuard {
     uint256 public lastSnapshotTime;
     VolatilityLib.MarketMode public currentMode;
     uint256 public earnAllocationBps;
+    uint256 public hedgeAllocationBps;  // NEW: asBNB hedge allocation
     uint256 public lpAllocationBps;
+
+    // Yield Oracle state for APY tracking
+    YieldOracle.YieldSnapshot public lastYieldSnapshot;
+    YieldOracle.StableAsset public currentBestAsset;
 
     // ─── Events ──────────────────────────────────────────────────────────────
     event Rebalanced(
         VolatilityLib.MarketMode mode,
         uint256 earnBps,
+        uint256 hedgeBps,
         uint256 lpBps,
         uint256 deviationBps,
         uint256 timestamp
     );
-    event CapitalDeployed(uint256 earnAmount, uint256 lpAmount);
+    event CapitalDeployed(uint256 earnAmount, uint256 hedgeAmount, uint256 lpAmount);
     event Withdrawn(uint256 amount, address recipient);
+    event YieldChased(YieldOracle.StableAsset fromAsset, YieldOracle.StableAsset toAsset, uint256 apyDiff);
+    event HedgeAdjusted(uint256 oldBps, uint256 newBps, VolatilityLib.MarketMode mode);
 
     // ─── Constructor ─────────────────────────────────────────────────────────
     constructor(
         address _engineCore,
         address _earnAdapter,
+        address _hedgeAdapter,
         address _lpAdapter,
         address _farmAdapter
     ) {
         require(_engineCore != address(0), "SR: zero engine");
         require(_earnAdapter != address(0), "SR: zero earn");
+        require(_hedgeAdapter != address(0), "SR: zero hedge");
         require(_lpAdapter != address(0), "SR: zero lp");
         require(_farmAdapter != address(0), "SR: zero farm");
 
         engineCore = _engineCore;
         earnAdapter = AsterDEXEarnAdapter(payable(_earnAdapter));
+        hedgeAdapter = AsterHedgeAdapter(payable(_hedgeAdapter));
         lpAdapter = PancakeSwapV2LPAdapter(payable(_lpAdapter));
         farmAdapter = PancakeSwapFarmAdapter(payable(_farmAdapter));
 
-        // Initialize with NORMAL mode
+        // Initialize with NORMAL mode allocations:
+        // NORMAL: 60% Earn (asUSDF) + 20% Hedge (asBNB) + 10% LP + 10% Buffer
         currentMode = VolatilityLib.MarketMode.NORMAL;
-        earnAllocationBps = VolatilityLib.NORMAL_EARN_BPS;
-        lpAllocationBps = 10_000 - VolatilityLib.NORMAL_EARN_BPS - BUFFER_BPS;
+        earnAllocationBps = 6000;   // 60% to asUSDF yield
+        hedgeAllocationBps = 2000;  // 20% to asBNB hedge
+        lpAllocationBps = 1000;     // 10% to CAKE/WBNB LP
+        // Remaining 10% = buffer
 
-        // Set initial price snapshot to 1.0 (will update on first rebalance)
+        // Initialize yield tracking
+        currentBestAsset = YieldOracle.StableAsset.USDF; // Default to USDF
+        lastYieldSnapshot = YieldOracle.createSnapshot();
+
+        // Set initial price snapshot
         lastPriceSnapshot = 1e18;
         lastSnapshotTime = block.timestamp;
     }
@@ -115,65 +139,90 @@ contract StrategyRouter is ReentrancyGuard {
         lastPriceSnapshot = currentPrice;
         lastSnapshotTime = block.timestamp;
 
-        emit Rebalanced(newMode, earnAllocationBps, lpAllocationBps, deviationBps, block.timestamp);
+        emit Rebalanced(newMode, earnAllocationBps, hedgeAllocationBps, lpAllocationBps, deviationBps, block.timestamp);
     }
 
     /// @notice Deploy fresh capital according to current allocation
     /// @dev Called by EngineCore after deposits
+    ///      Allocation: Earn (asUSDF) + Hedge (asBNB) + LP + Buffer
     function deployCapital() external onlyEngine nonReentrant {
         uint256 totalCapital = IERC20(USDT).balanceOf(address(this));
         if (totalCapital == 0) return;
 
-        // Reserve buffer
-        uint256 bufferAmount = (totalCapital * BUFFER_BPS) / 10_000;
+        // Calculate allocations
+        uint256 bufferBps = 10_000 - earnAllocationBps - hedgeAllocationBps - lpAllocationBps;
+        uint256 bufferAmount = (totalCapital * bufferBps) / 10_000;
         uint256 deployable = totalCapital - bufferAmount;
 
-        (uint256 earnAmount, uint256 lpAmount) = VaultMath.calcAllocation(
-            deployable,
-            earnAllocationBps
-        );
+        uint256 earnAmount = (deployable * earnAllocationBps) / (earnAllocationBps + hedgeAllocationBps + lpAllocationBps);
+        uint256 hedgeAmount = (deployable * hedgeAllocationBps) / (earnAllocationBps + hedgeAllocationBps + lpAllocationBps);
+        uint256 lpAmount = deployable - earnAmount - hedgeAmount;
 
-        // Deploy to AsterDEX Earn (two-step: USDT → USDF → asUSDF)
-        // Following MetaYieldVault pattern: don't revert on adapter failures
+        // ─── 1. Deploy to AsterDEX Earn (asUSDF yield) ───────────────────────
         if (earnAmount > 0) {
-            IERC20(USDT).safeTransfer(address(earnAdapter), earnAmount);
-            bytes memory usdfParams = abi.encode(
-                uint8(0),      // ActionType.DEPOSIT
-                uint8(0),      // Asset.USDF (USDT → USDF)
-                earnAmount,    // amount
-                uint256(0),    // mintRatio
-                uint256(0),    // minReceived
-                uint256(0),    // requestId
-                address(this)  // recipient
-            );
-
-            try earnAdapter.execute(address(this), usdfParams) returns (bool step1Ok, bytes memory) {
-                if (step1Ok) {
-                    // Step 2: USDF → asUSDF
-                    uint256 usdfBalance = IERC20(USDF).balanceOf(address(this));
-                    if (usdfBalance > 0) {
-                        IERC20(USDF).safeTransfer(address(earnAdapter), usdfBalance);
-                        bytes memory asUsdfParams = abi.encode(
-                            uint8(0),      // ActionType.DEPOSIT
-                            uint8(2),      // Asset.ASUSDF (USDF → asUSDF)
-                            usdfBalance,   // amount
-                            uint256(0),    // mintRatio
-                            uint256(0),    // minReceived
-                            uint256(0),    // requestId
-                            address(this)  // recipient
-                        );
-                        try earnAdapter.execute(address(this), asUsdfParams) {} catch {}
-                    }
-                }
-            } catch {}
+            _deployToEarn(earnAmount);
         }
 
-        // Deploy to PancakeSwap LP (only if not in DRAWDOWN mode)
+        // ─── 2. Deploy to asBNB Hedge ────────────────────────────────────────
+        if (hedgeAmount > 0) {
+            _deployToHedge(hedgeAmount);
+        }
+
+        // ─── 3. Deploy to PancakeSwap LP (only if not in DRAWDOWN mode) ──────
         if (lpAmount > 0 && currentMode != VolatilityLib.MarketMode.DRAWDOWN) {
             _deployToLP(lpAmount);
         }
 
-        emit CapitalDeployed(earnAmount, lpAmount);
+        emit CapitalDeployed(earnAmount, hedgeAmount, lpAmount);
+    }
+
+    /// @notice Deploy USDT to AsterDEX Earn (USDT → USDF → asUSDF)
+    function _deployToEarn(uint256 amount) internal {
+        IERC20(USDT).safeTransfer(address(earnAdapter), amount);
+        bytes memory usdfParams = abi.encode(
+            uint8(0),      // ActionType.DEPOSIT
+            uint8(0),      // Asset.USDF (USDT → USDF)
+            amount,        // amount
+            uint256(0),    // mintRatio
+            uint256(0),    // minReceived
+            uint256(0),    // requestId
+            address(this)  // recipient
+        );
+
+        try earnAdapter.execute(address(this), usdfParams) returns (bool step1Ok, bytes memory) {
+            if (step1Ok) {
+                // Step 2: USDF → asUSDF
+                uint256 usdfBalance = IERC20(USDF).balanceOf(address(this));
+                if (usdfBalance > 0) {
+                    IERC20(USDF).safeTransfer(address(earnAdapter), usdfBalance);
+                    bytes memory asUsdfParams = abi.encode(
+                        uint8(0),      // ActionType.DEPOSIT
+                        uint8(2),      // Asset.ASUSDF (USDF → asUSDF)
+                        usdfBalance,   // amount
+                        uint256(0),    // mintRatio
+                        uint256(0),    // minReceived
+                        uint256(0),    // requestId
+                        address(this)  // recipient
+                    );
+                    try earnAdapter.execute(address(this), asUsdfParams) {} catch {}
+                }
+            }
+        } catch {}
+    }
+
+    /// @notice Deploy USDT to asBNB hedge (USDT → BNB → asBNB)
+    function _deployToHedge(uint256 amount) internal {
+        IERC20(USDT).safeTransfer(address(hedgeAdapter), amount);
+
+        bytes memory hedgeParams = abi.encode(
+            uint8(0),      // ActionType.OPEN_HEDGE
+            amount,        // amount
+            uint256(0),    // minReceived
+            hedgeAllocationBps, // targetHedgeBps
+            address(this)  // recipient
+        );
+
+        try hedgeAdapter.execute(address(this), hedgeParams) {} catch {}
     }
 
     /// @notice Withdraw assets from strategies
@@ -200,14 +249,35 @@ contract StrategyRouter is ReentrancyGuard {
     // ─── Internal ────────────────────────────────────────────────────────────
 
     function _executeRebalance(uint256 targetEarnBps, VolatilityLib.MarketMode newMode) internal {
-        // If moving to DRAWDOWN: exit all LP
+        // If moving to DRAWDOWN: exit all LP and increase hedge
         if (newMode == VolatilityLib.MarketMode.DRAWDOWN && currentMode != VolatilityLib.MarketMode.DRAWDOWN) {
             _exitAllLP();
         }
 
+        uint256 oldHedgeBps = hedgeAllocationBps;
+
+        // Update allocations based on volatility mode
+        // Higher volatility = more hedge (asBNB), less LP
         currentMode = newMode;
-        earnAllocationBps = targetEarnBps;
-        lpAllocationBps = 10_000 - targetEarnBps - BUFFER_BPS;
+
+        if (newMode == VolatilityLib.MarketMode.NORMAL) {
+            // NORMAL: 60% Earn + 20% Hedge + 10% LP + 10% Buffer
+            earnAllocationBps = 6000;
+            hedgeAllocationBps = 2000;
+            lpAllocationBps = 1000;
+        } else if (newMode == VolatilityLib.MarketMode.VOLATILE) {
+            // VOLATILE: 40% Earn + 40% Hedge + 10% LP + 10% Buffer
+            earnAllocationBps = 4000;
+            hedgeAllocationBps = 4000;
+            lpAllocationBps = 1000;
+        } else {
+            // DRAWDOWN: 20% Earn + 50% Hedge + 0% LP + 30% Buffer
+            earnAllocationBps = 2000;
+            hedgeAllocationBps = 5000;
+            lpAllocationBps = 0;
+        }
+
+        emit HedgeAdjusted(oldHedgeBps, hedgeAllocationBps, newMode);
     }
 
     function _deployToLP(uint256 amount) internal {
@@ -278,9 +348,15 @@ contract StrategyRouter is ReentrancyGuard {
     function totalManagedAssets() external view returns (uint256) {
         uint256 bufferBalance = IERC20(USDT).balanceOf(address(this));
         uint256 earnValue = _getEarnValue();
+        uint256 hedgeValue = _getHedgeValue();
         uint256 lpValue = _getLPValue();
 
-        return bufferBalance + earnValue + lpValue;
+        return bufferBalance + earnValue + hedgeValue + lpValue;
+    }
+
+    /// @notice Get value of Hedge (asBNB) position in USDT
+    function _getHedgeValue() internal view returns (uint256) {
+        return hedgeAdapter.getHedgeValue(address(this));
     }
 
     /// @notice Get value of Earn position in USDT

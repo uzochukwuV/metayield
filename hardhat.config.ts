@@ -20,8 +20,7 @@ const config: HardhatUserConfig = {
     hardhat: {
       chainId: 56,
       forking: {
-        url: BSC_RPC_URL,
-        blockNumber: 47500000,
+        url: BSC_RPC_URL
       },
     },
     localhost: {

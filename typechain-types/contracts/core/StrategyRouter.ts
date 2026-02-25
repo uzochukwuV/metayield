@@ -37,14 +37,18 @@ export interface StrategyRouterInterface extends Interface {
       | "USDF_USDT_PAIR"
       | "USDT"
       | "WBNB"
+      | "currentBestAsset"
       | "currentMode"
       | "deployCapital"
       | "earnAdapter"
       | "earnAllocationBps"
       | "engineCore"
       | "farmAdapter"
+      | "hedgeAdapter"
+      | "hedgeAllocationBps"
       | "lastPriceSnapshot"
       | "lastSnapshotTime"
+      | "lastYieldSnapshot"
       | "lpAdapter"
       | "lpAllocationBps"
       | "rebalance"
@@ -54,7 +58,12 @@ export interface StrategyRouterInterface extends Interface {
   ): FunctionFragment;
 
   getEvent(
-    nameOrSignatureOrTopic: "CapitalDeployed" | "Rebalanced" | "Withdrawn"
+    nameOrSignatureOrTopic:
+      | "CapitalDeployed"
+      | "HedgeAdjusted"
+      | "Rebalanced"
+      | "Withdrawn"
+      | "YieldChased"
   ): EventFragment;
 
   encodeFunctionData(
@@ -87,6 +96,10 @@ export interface StrategyRouterInterface extends Interface {
   encodeFunctionData(functionFragment: "USDT", values?: undefined): string;
   encodeFunctionData(functionFragment: "WBNB", values?: undefined): string;
   encodeFunctionData(
+    functionFragment: "currentBestAsset",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "currentMode",
     values?: undefined
   ): string;
@@ -111,11 +124,23 @@ export interface StrategyRouterInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "hedgeAdapter",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "hedgeAllocationBps",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "lastPriceSnapshot",
     values?: undefined
   ): string;
   encodeFunctionData(
     functionFragment: "lastSnapshotTime",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "lastYieldSnapshot",
     values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "lpAdapter", values?: undefined): string;
@@ -161,6 +186,10 @@ export interface StrategyRouterInterface extends Interface {
   decodeFunctionResult(functionFragment: "USDT", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "WBNB", data: BytesLike): Result;
   decodeFunctionResult(
+    functionFragment: "currentBestAsset",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "currentMode",
     data: BytesLike
   ): Result;
@@ -182,11 +211,23 @@ export interface StrategyRouterInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "hedgeAdapter",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "hedgeAllocationBps",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "lastPriceSnapshot",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
     functionFragment: "lastSnapshotTime",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "lastYieldSnapshot",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "lpAdapter", data: BytesLike): Result;
@@ -207,11 +248,38 @@ export interface StrategyRouterInterface extends Interface {
 }
 
 export namespace CapitalDeployedEvent {
-  export type InputTuple = [earnAmount: BigNumberish, lpAmount: BigNumberish];
-  export type OutputTuple = [earnAmount: bigint, lpAmount: bigint];
+  export type InputTuple = [
+    earnAmount: BigNumberish,
+    hedgeAmount: BigNumberish,
+    lpAmount: BigNumberish
+  ];
+  export type OutputTuple = [
+    earnAmount: bigint,
+    hedgeAmount: bigint,
+    lpAmount: bigint
+  ];
   export interface OutputObject {
     earnAmount: bigint;
+    hedgeAmount: bigint;
     lpAmount: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace HedgeAdjustedEvent {
+  export type InputTuple = [
+    oldBps: BigNumberish,
+    newBps: BigNumberish,
+    mode: BigNumberish
+  ];
+  export type OutputTuple = [oldBps: bigint, newBps: bigint, mode: bigint];
+  export interface OutputObject {
+    oldBps: bigint;
+    newBps: bigint;
+    mode: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -223,6 +291,7 @@ export namespace RebalancedEvent {
   export type InputTuple = [
     mode: BigNumberish,
     earnBps: BigNumberish,
+    hedgeBps: BigNumberish,
     lpBps: BigNumberish,
     deviationBps: BigNumberish,
     timestamp: BigNumberish
@@ -230,6 +299,7 @@ export namespace RebalancedEvent {
   export type OutputTuple = [
     mode: bigint,
     earnBps: bigint,
+    hedgeBps: bigint,
     lpBps: bigint,
     deviationBps: bigint,
     timestamp: bigint
@@ -237,6 +307,7 @@ export namespace RebalancedEvent {
   export interface OutputObject {
     mode: bigint;
     earnBps: bigint;
+    hedgeBps: bigint;
     lpBps: bigint;
     deviationBps: bigint;
     timestamp: bigint;
@@ -253,6 +324,28 @@ export namespace WithdrawnEvent {
   export interface OutputObject {
     amount: bigint;
     recipient: string;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace YieldChasedEvent {
+  export type InputTuple = [
+    fromAsset: BigNumberish,
+    toAsset: BigNumberish,
+    apyDiff: BigNumberish
+  ];
+  export type OutputTuple = [
+    fromAsset: bigint,
+    toAsset: bigint,
+    apyDiff: bigint
+  ];
+  export interface OutputObject {
+    fromAsset: bigint;
+    toAsset: bigint;
+    apyDiff: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -325,6 +418,8 @@ export interface StrategyRouter extends BaseContract {
 
   WBNB: TypedContractMethod<[], [string], "view">;
 
+  currentBestAsset: TypedContractMethod<[], [bigint], "view">;
+
   currentMode: TypedContractMethod<[], [bigint], "view">;
 
   deployCapital: TypedContractMethod<[], [void], "nonpayable">;
@@ -337,9 +432,25 @@ export interface StrategyRouter extends BaseContract {
 
   farmAdapter: TypedContractMethod<[], [string], "view">;
 
+  hedgeAdapter: TypedContractMethod<[], [string], "view">;
+
+  hedgeAllocationBps: TypedContractMethod<[], [bigint], "view">;
+
   lastPriceSnapshot: TypedContractMethod<[], [bigint], "view">;
 
   lastSnapshotTime: TypedContractMethod<[], [bigint], "view">;
+
+  lastYieldSnapshot: TypedContractMethod<
+    [],
+    [
+      [bigint, bigint, bigint] & {
+        usdfRate: bigint;
+        asUsdfRate: bigint;
+        timestamp: bigint;
+      }
+    ],
+    "view"
+  >;
 
   lpAdapter: TypedContractMethod<[], [string], "view">;
 
@@ -395,6 +506,9 @@ export interface StrategyRouter extends BaseContract {
     nameOrSignature: "WBNB"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
+    nameOrSignature: "currentBestAsset"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "currentMode"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
@@ -413,11 +527,30 @@ export interface StrategyRouter extends BaseContract {
     nameOrSignature: "farmAdapter"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
+    nameOrSignature: "hedgeAdapter"
+  ): TypedContractMethod<[], [string], "view">;
+  getFunction(
+    nameOrSignature: "hedgeAllocationBps"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "lastPriceSnapshot"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
     nameOrSignature: "lastSnapshotTime"
   ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "lastYieldSnapshot"
+  ): TypedContractMethod<
+    [],
+    [
+      [bigint, bigint, bigint] & {
+        usdfRate: bigint;
+        asUsdfRate: bigint;
+        timestamp: bigint;
+      }
+    ],
+    "view"
+  >;
   getFunction(
     nameOrSignature: "lpAdapter"
   ): TypedContractMethod<[], [string], "view">;
@@ -449,6 +582,13 @@ export interface StrategyRouter extends BaseContract {
     CapitalDeployedEvent.OutputObject
   >;
   getEvent(
+    key: "HedgeAdjusted"
+  ): TypedContractEvent<
+    HedgeAdjustedEvent.InputTuple,
+    HedgeAdjustedEvent.OutputTuple,
+    HedgeAdjustedEvent.OutputObject
+  >;
+  getEvent(
     key: "Rebalanced"
   ): TypedContractEvent<
     RebalancedEvent.InputTuple,
@@ -462,9 +602,16 @@ export interface StrategyRouter extends BaseContract {
     WithdrawnEvent.OutputTuple,
     WithdrawnEvent.OutputObject
   >;
+  getEvent(
+    key: "YieldChased"
+  ): TypedContractEvent<
+    YieldChasedEvent.InputTuple,
+    YieldChasedEvent.OutputTuple,
+    YieldChasedEvent.OutputObject
+  >;
 
   filters: {
-    "CapitalDeployed(uint256,uint256)": TypedContractEvent<
+    "CapitalDeployed(uint256,uint256,uint256)": TypedContractEvent<
       CapitalDeployedEvent.InputTuple,
       CapitalDeployedEvent.OutputTuple,
       CapitalDeployedEvent.OutputObject
@@ -475,7 +622,18 @@ export interface StrategyRouter extends BaseContract {
       CapitalDeployedEvent.OutputObject
     >;
 
-    "Rebalanced(uint8,uint256,uint256,uint256,uint256)": TypedContractEvent<
+    "HedgeAdjusted(uint256,uint256,uint8)": TypedContractEvent<
+      HedgeAdjustedEvent.InputTuple,
+      HedgeAdjustedEvent.OutputTuple,
+      HedgeAdjustedEvent.OutputObject
+    >;
+    HedgeAdjusted: TypedContractEvent<
+      HedgeAdjustedEvent.InputTuple,
+      HedgeAdjustedEvent.OutputTuple,
+      HedgeAdjustedEvent.OutputObject
+    >;
+
+    "Rebalanced(uint8,uint256,uint256,uint256,uint256,uint256)": TypedContractEvent<
       RebalancedEvent.InputTuple,
       RebalancedEvent.OutputTuple,
       RebalancedEvent.OutputObject
@@ -495,6 +653,17 @@ export interface StrategyRouter extends BaseContract {
       WithdrawnEvent.InputTuple,
       WithdrawnEvent.OutputTuple,
       WithdrawnEvent.OutputObject
+    >;
+
+    "YieldChased(uint8,uint8,uint256)": TypedContractEvent<
+      YieldChasedEvent.InputTuple,
+      YieldChasedEvent.OutputTuple,
+      YieldChasedEvent.OutputObject
+    >;
+    YieldChased: TypedContractEvent<
+      YieldChasedEvent.InputTuple,
+      YieldChasedEvent.OutputTuple,
+      YieldChasedEvent.OutputObject
     >;
   };
 }

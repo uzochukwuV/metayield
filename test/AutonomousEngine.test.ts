@@ -72,47 +72,67 @@ async function ensureFixture() {
 
     // Deploy adapters
     const EarnF  = await ethers.getContractFactory("AsterDEXEarnAdapter");
+    const HedgeF = await ethers.getContractFactory("AsterHedgeAdapter");
     const LPF    = await ethers.getContractFactory("PancakeSwapV2LPAdapter");
     const FarmF  = await ethers.getContractFactory("PancakeSwapFarmAdapter");
 
-    const [earnAdapter, lpAdapter, farmAdapter] = await Promise.all([
+    const [earnAdapter, hedgeAdapter, lpAdapter, farmAdapter] = await Promise.all([
         EarnF.deploy().then(c => c.waitForDeployment()),
+        HedgeF.deploy().then(c => c.waitForDeployment()),
         LPF.deploy(BSC.PANCAKE_ROUTER).then(c => c.waitForDeployment()),
         FarmF.deploy(BSC.MASTERCHEF_V2).then(c => c.waitForDeployment()),
     ]);
 
     const earnAddr = await earnAdapter.getAddress();
+    const hedgeAddr = await hedgeAdapter.getAddress();
     const lpAddr = await lpAdapter.getAddress();
     const farmAddr = await farmAdapter.getAddress();
 
-    // Deploy core contracts (circular dependency: vault needs router, router needs engine, engine needs vault)
-    // Solution: deploy with placeholder addresses, then update
+    // Deploy core contracts (circular dependency: vault needs engine, router needs engine, engine needs vault+router)
+    // Solution: Pre-compute all addresses before deployment using CREATE address formula:
+    //   address = keccak256(rlp([sender, nonce]))[12:32]
 
-    // 1. Deploy StrategyRouter with placeholder engine address
+    const deployerAddr = await deployer.getAddress();
+    const currentNonce = await ethers.provider.getTransactionCount(deployerAddr);
+
+    // Pre-compute addresses: Router (nonce), Vault (nonce+1), Engine (nonce+2)
+    const computeAddress = (nonce: number) => {
+        return ethers.getCreateAddress({ from: deployerAddr, nonce });
+    };
+
+    const futureRouterAddr = computeAddress(currentNonce);
+    const futureVaultAddr = computeAddress(currentNonce + 1);
+    const futureEngineAddr = computeAddress(currentNonce + 2);
+
+    // 1. Deploy StrategyRouter with pre-computed engine address
     const RouterF = await ethers.getContractFactory("StrategyRouter");
     router = await RouterF.deploy(
-        deployer.address, // temporary - will be replaced
+        futureEngineAddr, // pre-computed EngineCore address
         earnAddr,
+        hedgeAddr,
         lpAddr,
         farmAddr
     ).then(c => c.waitForDeployment()) as StrategyRouter;
     routerAddr = await router.getAddress();
+    if (routerAddr !== futureRouterAddr) throw new Error("Router address mismatch");
 
-    // 2. Deploy MetaVault
+    // 2. Deploy MetaVault with pre-computed engine address
     const VaultF = await ethers.getContractFactory("MetaVault");
     vault = await VaultF.deploy(
-        deployer.address, // temporary - will be replaced
+        futureEngineAddr, // pre-computed EngineCore address
         routerAddr
     ).then(c => c.waitForDeployment()) as MetaVault;
     vaultAddr = await vault.getAddress();
+    if (vaultAddr !== futureVaultAddr) throw new Error("Vault address mismatch");
 
-    // 3. Deploy EngineCore
+    // 3. Deploy EngineCore (now all addresses are correct)
     const EngineF = await ethers.getContractFactory("EngineCore");
     engine = await EngineF.deploy(
         vaultAddr,
         routerAddr
     ).then(c => c.waitForDeployment()) as EngineCore;
     engineAddr = await engine.getAddress();
+    if (engineAddr !== futureEngineAddr) throw new Error("Engine address mismatch");
 
     console.log(`\n    [Fixture] Deployed:`);
     console.log(`    Vault:  ${vaultAddr}`);
@@ -147,7 +167,7 @@ describe("Autonomous Engine — Deployment", function () {
     });
 
     it("StrategyRouter immutables are set", async function () {
-        expect(await router.engineCore()).to.equal(deployer.address); // temporary
+        expect(await router.engineCore()).to.equal(engineAddr);
     });
 
     it("EngineCore has correct references", async function () {

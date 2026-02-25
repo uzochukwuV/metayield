@@ -4,3 +4,4 @@
 import type * as volatilityLibSol from "./VolatilityLib.sol";
 export type { volatilityLibSol };
 export type { VaultMath } from "./VaultMath";
+export type { YieldOracle } from "./YieldOracle";

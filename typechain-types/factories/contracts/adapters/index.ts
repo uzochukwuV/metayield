@@ -2,5 +2,6 @@
 /* tslint:disable */
 /* eslint-disable */
 export * as asterDexEarnAdapterSol from "./AsterDEXEarnAdapter.sol";
+export * as asterHedgeAdapterSol from "./AsterHedgeAdapter.sol";
 export * as pancakeSwapFarmAdapterSol from "./PancakeSwapFarmAdapter.sol";
 export * as pancakeSwapV2LpAdapterSol from "./PancakeSwapV2LPAdapter.sol";
